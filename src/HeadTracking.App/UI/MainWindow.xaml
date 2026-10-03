@@ -1,0 +1,468 @@
+<Window x:Class="HeadTracking.App.UI.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="clr-namespace:HeadTracking.App.UI"
+        Title="Head Tracking" Width="1120" Height="760" MinWidth="980" MinHeight="620"
+        Background="{StaticResource BackgroundBrush}" WindowStartupLocation="CenterScreen"
+        FontFamily="{StaticResource UiFont}" TextOptions.TextFormattingMode="Display" UseLayoutRounding="True">
+    <Grid Background="{StaticResource BackgroundBrush}">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="230" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <!-- ===== Sidebar =============================================================== -->
+        <Border Background="{StaticResource SidebarBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,1,0">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="20,22,20,22">
+                    <Image Source="/Assets/HeadTracking.ico" Width="34" Height="34" RenderOptions.BitmapScalingMode="HighQuality" />
+                    <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
+                        <TextBlock Text="Head Tracking" FontSize="16" FontWeight="SemiBold" />
+                        <TextBlock Text="for SPT" Style="{StaticResource Hint}" />
+                    </StackPanel>
+                </StackPanel>
+                <TextBlock DockPanel.Dock="Bottom" Text="{Binding Version}" Style="{StaticResource Hint}" Margin="22,0,0,16" />
+                <ListBox x:Name="Nav" Background="Transparent" BorderThickness="0" SelectedIndex="0"
+                         ItemContainerStyle="{StaticResource NavItem}" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                    <ListBoxItem><StackPanel Orientation="Horizontal"><TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE80F;" Width="26" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" /><TextBlock Text="Overview" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" /></StackPanel></ListBoxItem>
+                    <ListBoxItem><StackPanel Orientation="Horizontal"><TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE714;" Width="26" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" /><TextBlock Text="Tracking source" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" /></StackPanel></ListBoxItem>
+                    <ListBoxItem><StackPanel Orientation="Horizontal"><TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE713;" Width="26" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" /><TextBlock Text="Response" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" /></StackPanel></ListBoxItem>
+                    <ListBoxItem><StackPanel Orientation="Horizontal"><TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE71E;" Width="26" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" /><TextBlock Text="Lean to zoom" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" /></StackPanel></ListBoxItem>
+                    <ListBoxItem><StackPanel Orientation="Horizontal"><TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE7FC;" Width="26" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" /><TextBlock Text="In game" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" /></StackPanel></ListBoxItem>
+                    <ListBoxItem><StackPanel Orientation="Horizontal"><TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE9D9;" Width="26" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" /><TextBlock Text="Diagnostics" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" /></StackPanel></ListBoxItem>
+                </ListBox>
+            </DockPanel>
+        </Border>
+
+        <!-- ===== Content =============================================================== -->
+        <Grid Grid.Column="1" Background="{StaticResource BackgroundBrush}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <!-- Status header -->
+            <Border Background="{StaticResource SidebarBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1" Padding="24,14">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Orientation="Horizontal">
+                        <Ellipse Width="10" Height="10" Fill="{Binding TrackerBrush}" VerticalAlignment="Center" />
+                        <StackPanel Margin="10,0,0,0">
+                            <TextBlock Text="{Binding TrackerStatus}" FontWeight="SemiBold" FontSize="14" />
+                            <TextBlock Text="{Binding TrackerDetail}" Style="{StaticResource Hint}" TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal">
+                        <Ellipse Width="10" Height="10" Fill="{Binding GameBrush}" VerticalAlignment="Center" />
+                        <StackPanel Margin="10,0,0,0">
+                            <TextBlock Text="{Binding GameStatus}" FontWeight="SemiBold" FontSize="14" />
+                            <TextBlock Text="{Binding GameDetail}" Style="{StaticResource Hint}" TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                        <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.Enabled}" Content="Enabled" Margin="0,0,18,0" VerticalAlignment="Center"
+                                  ToolTip="Head tracking on or off in game. The in-game toggle key flips this too." />
+                        <Button Style="{StaticResource AccentButton}" Command="{Binding RecenterCommand}"
+                                ToolTip="Look at the middle of your screen and press this (or the recenter key in game).">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE1D2;" Foreground="#FF15171A" Margin="0,1,8,0" />
+                                <TextBlock Text="Recenter" Foreground="#FF15171A" FontWeight="SemiBold" />
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <TabControl Grid.Row="1" Style="{StaticResource PageHost}" SelectedIndex="{Binding SelectedIndex, ElementName=Nav}">
+
+                <!-- ===== Overview ===================================================== -->
+                <TabItem>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="28,22">
+                        <StackPanel>
+                            <TextBlock Text="Overview" Style="{StaticResource PageTitle}" />
+                            <TextBlock Text="Turn your head a little: the left pad shows your head, the right pad what the game is told. Turning right should move both to the right." Style="{StaticResource PageSubtitle}" />
+
+                            <Border Style="{StaticResource Card}" Background="#33E06A6A" BorderBrush="{StaticResource BadBrush}" Visibility="{Binding SourceErrorVisibility}">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE783;" Foreground="{StaticResource BadBrush}" FontSize="18" Margin="0,0,12,0" VerticalAlignment="Top" />
+                                    <TextBlock Text="{Binding SourceError}" TextWrapping="Wrap" MaxWidth="760" />
+                                </StackPanel>
+                            </Border>
+
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="14" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="14" />
+                                    <ColumnDefinition Width="1.25*" />
+                                </Grid.ColumnDefinitions>
+                                <Border Style="{StaticResource Card}">
+                                    <StackPanel>
+                                        <TextBlock Text="Your head" Style="{StaticResource CardTitle}" />
+                                        <ui:HeadPad Height="220" X="{Binding HeadX}" Y="{Binding HeadY}" Range="30" Active="{Binding Tracking}"
+                                                    DeadX="{Binding Settings.YawDeadZone}" DeadY="{Binding Settings.PitchDeadZone}" Caption="real degrees" />
+                                        <TextBlock Text="{Binding HeadText}" Style="{StaticResource Hint}" Margin="0,8,0,0" />
+                                    </StackPanel>
+                                </Border>
+                                <Border Grid.Column="2" Style="{StaticResource Card}">
+                                    <StackPanel>
+                                        <TextBlock Text="In game" Style="{StaticResource CardTitle}" />
+                                        <ui:HeadPad Height="220" X="{Binding OutX}" Y="{Binding OutY}" Range="50" Active="{Binding Tracking}"
+                                                    LimitX="{Binding Settings.MaxYaw}" LimitY="{Binding Settings.MaxPitch}" Caption="game degrees" />
+                                        <TextBlock Text="{Binding OutText}" Style="{StaticResource Hint}" Margin="0,8,0,0" />
+                                    </StackPanel>
+                                </Border>
+                                <Border Grid.Column="4" Style="{StaticResource Card}">
+                                    <StackPanel>
+                                        <TextBlock Text="Camera" Style="{StaticResource CardTitle}" />
+                                        <Grid Height="220">
+                                            <Viewbox Visibility="{Binding PreviewVisibility}">
+                                                <Grid Width="{Binding PreviewWidth}" Height="{Binding PreviewHeight}" RenderTransformOrigin="0.5,0.5">
+                                                    <Grid.RenderTransform><ScaleTransform ScaleX="-1" /></Grid.RenderTransform>
+                                                    <Image Source="{Binding PreviewImage}" />
+                                                    <Canvas>
+                                                        <Rectangle Canvas.Left="{Binding FaceBox.X}" Canvas.Top="{Binding FaceBox.Y}" Width="{Binding FaceBox.Width}" Height="{Binding FaceBox.Height}"
+                                                                   Stroke="{StaticResource AccentBrush}" StrokeThickness="2" RadiusX="3" RadiusY="3" Visibility="{Binding FaceBoxVisibility}" />
+                                                    </Canvas>
+                                                </Grid>
+                                            </Viewbox>
+                                            <TextBlock Text="{Binding NoPreviewText}" Style="{StaticResource Hint}" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                       Visibility="{Binding NoPreviewVisibility}" />
+                                        </Grid>
+                                        <TextBlock Text="Mirrored, like a mirror. The box is the face being tracked." Style="{StaticResource Hint}" Margin="0,8,0,0" />
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
+
+                            <Border Style="{StaticResource Card}">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Text="Lean to zoom" Style="{StaticResource CardTitle}" />
+                                        <ui:ZoomMeter Height="56" Lean="{Binding HeadZ}" DeadZone="{Binding Settings.ZoomDeadZoneCm}" Full="{Binding Settings.ZoomFullCm}" Zoom="{Binding ZoomPercent}" />
+                                        <TextBlock Text="{Binding ZoomText}" Style="{StaticResource Hint}" />
+                                    </StackPanel>
+                                    <CheckBox Grid.Column="1" Style="{StaticResource Switch}" IsChecked="{Binding Settings.ZoomEnabled}" Content="On" VerticalAlignment="Top" Margin="20,0,0,0" />
+                                </Grid>
+                            </Border>
+
+                            <Border Style="{StaticResource Card}">
+                                <StackPanel>
+                                    <TextBlock Text="Quick start" Style="{StaticResource CardTitle}" />
+                                    <TextBlock Style="{StaticResource Hint}" FontSize="13" LineHeight="21">
+                                        1. Sit as you play and look at the middle of your screen, then press Recenter (or F7 in raid).<LineBreak />
+                                        2. Start SPT. The status above turns to "Game connected" by itself.<LineBreak />
+                                        3. In raid, turn your head slightly. If the view goes the wrong way, flip Invert on the Response page.<LineBreak />
+                                        4. F8 in raid turns head tracking off and on. Aiming down sights pauses it.
+                                    </TextBlock>
+                                    <TextBlock Text="{Binding RatesText}" Style="{StaticResource Hint}" Margin="0,10,0,0" />
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+
+                <!-- ===== Tracking source =============================================== -->
+                <TabItem>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="28,22">
+                        <StackPanel MaxWidth="820" HorizontalAlignment="Left">
+                            <TextBlock Text="Tracking source" Style="{StaticResource PageTitle}" />
+                            <TextBlock Text="Where head movement comes from. The webcam tracker runs inside this app, on this PC; video never leaves it and is never saved." Style="{StaticResource PageSubtitle}" />
+
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,14">
+                                <RadioButton Style="{StaticResource Segment}" GroupName="Source" IsChecked="{Binding UseWebcam}">
+                                    <StackPanel>
+                                        <TextBlock Text="Webcam" FontWeight="SemiBold" />
+                                        <TextBlock Text="Built in. Any USB or laptop webcam." Style="{StaticResource Hint}" />
+                                    </StackPanel>
+                                </RadioButton>
+                                <RadioButton Style="{StaticResource Segment}" GroupName="Source" IsChecked="{Binding UseOpenTrack}">
+                                    <StackPanel>
+                                        <TextBlock Text="OpenTrack" FontWeight="SemiBold" />
+                                        <TextBlock Text="Any tracker OpenTrack supports." Style="{StaticResource Hint}" />
+                                    </StackPanel>
+                                </RadioButton>
+                            </StackPanel>
+
+                            <StackPanel Visibility="{Binding WebcamVisibility}">
+                                <Border Style="{StaticResource Card}">
+                                    <StackPanel>
+                                        <TextBlock Text="Camera" Style="{StaticResource CardTitle}" />
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <ComboBox ItemsSource="{Binding CameraNames}" SelectedItem="{Binding SelectedCamera}" />
+                                            <Button Grid.Column="1" Content="Refresh" Margin="10,0,0,0" Command="{Binding RefreshCamerasCommand}" />
+                                        </Grid>
+                                        <TextBlock Text="{Binding CameraListText}" Style="{StaticResource Hint}" Margin="0,6,0,12" />
+                                        <TextBlock Text="Picture format" FontWeight="SemiBold" Margin="0,0,0,6" />
+                                        <ComboBox ItemsSource="{Binding Formats}" SelectedValuePath="Key" SelectedValue="{Binding SelectedFormat}" />
+                                        <TextBlock Text="Automatic picks about 640 x 480 at the highest frame rate. More pixels do not track better; more frames per second do." Style="{StaticResource Hint}" Margin="0,6,0,0" />
+                                        <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.ShowPreview}" Content="Show the camera preview in this window" Margin="0,14,0,0" />
+                                    </StackPanel>
+                                </Border>
+
+                                <Border Style="{StaticResource Card}">
+                                    <StackPanel>
+                                        <TextBlock Text="Face tracking" Style="{StaticResource CardTitle}" />
+                                        <TextBlock Text="Model" FontWeight="SemiBold" Margin="0,0,0,6" />
+                                        <ComboBox ItemsSource="{Binding Models}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding Settings.Model}" />
+                                        <TextBlock Text="OpenTrack's open-source neural head-pose models. Each frame costs a few milliseconds of CPU." Style="{StaticResource Hint}" Margin="0,6,0,12" />
+                                        <ui:SettingSlider Label="CPU threads" Minimum="1" Maximum="4" Step="1" Format="0" Value="{Binding Settings.InferenceThreads}"
+                                                          Hint="Threads the networks may use. 2 is plenty; 1 leaves the most for the game." />
+                                        <ui:SettingSlider Label="Camera field of view" Minimum="40" Maximum="110" Step="1" Format="0" Unit="&#x00B0; diagonal" Value="{Binding Settings.CameraFov}"
+                                                          Hint="From the camera's spec sheet (Logitech C920: 78, C270: 55, laptop cameras about 70). Only fine-tunes distance and off-centre angles." />
+                                        <ui:SettingSlider Label="Face detection confidence" Minimum="0.2" Maximum="0.9" Step="0.05" Format="0.00" Value="{Binding Settings.DetectionThreshold}"
+                                                          Hint="How sure the detector must be that it sees a face. Lower finds faces in poor light but may mistake other things for one." />
+                                        <ui:SettingSlider Label="Face lost after" Minimum="0" Maximum="3000" Step="100" Format="0" Unit="ms" Value="{Binding Settings.FaceLostAfterMs}"
+                                                          Hint="While the detector is unsure, keep tracking the last face region this long before calling it lost." />
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+
+                            <Border Style="{StaticResource Card}" Visibility="{Binding OpenTrackVisibility}">
+                                <StackPanel>
+                                    <TextBlock Text="OpenTrack" Style="{StaticResource CardTitle}" />
+                                    <ui:SettingSlider Label="Listen on UDP port" Minimum="1024" Maximum="65535" Step="1" Format="0" Value="{Binding Settings.OpenTrackPort}" />
+                                    <TextBlock Style="{StaticResource Hint}" FontSize="13" LineHeight="21">
+                                        In OpenTrack: set Output to "UDP over network", click its hammer icon and enter IP 127.0.0.1 and the port above (4242 is OpenTrack's default), then press Start.<LineBreak />
+                                        Set the dead zones of OpenTrack's filter to 0: this app smooths and dead-zones on its own, and OpenTrack's dead zone makes a still head look like a lost one.
+                                    </TextBlock>
+                                </StackPanel>
+                            </Border>
+
+                            <Button Content="Restart tracking" HorizontalAlignment="Left" Command="{Binding RestartSourceCommand}" />
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+
+                <!-- ===== Response ======================================================= -->
+                <TabItem>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="28,22">
+                        <StackPanel>
+                            <TextBlock Text="Response" Style="{StaticResource PageTitle}" />
+                            <TextBlock Text="How far the view turns for how far your head turns. Sensitivity above 1 lets a small head turn look far, so your eyes stay on the screen." Style="{StaticResource PageSubtitle}" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="14" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Border Style="{StaticResource Card}">
+                                    <StackPanel>
+                                        <TextBlock Text="Left / right (yaw)" Style="{StaticResource CardTitle}" />
+                                        <ui:CurveGraph Height="150" Margin="0,0,0,12" DeadZone="{Binding Settings.YawDeadZone}" Gain="{Binding Settings.YawSensitivity}"
+                                                       Max="{Binding Settings.MaxYaw}" Curve="{Binding Settings.YawCurve}" Current="{Binding Live.RelativeYaw}" />
+                                        <ui:SettingSlider Label="Sensitivity" Minimum="0.5" Maximum="6" Step="0.1" Format="0.0" Unit="x" Value="{Binding Settings.YawSensitivity}" />
+                                        <ui:SettingSlider Label="Dead zone" Minimum="0" Maximum="10" Step="0.1" Format="0.0" Unit="&#x00B0;" Value="{Binding Settings.YawDeadZone}"
+                                                          Hint="Head movement near centre that does nothing. Inside it the camera is exactly vanilla." />
+                                        <ui:SettingSlider Label="Furthest turn" Minimum="5" Maximum="90" Step="1" Format="0" Unit="&#x00B0;" Value="{Binding Settings.MaxYaw}"
+                                                          Hint="The game's own freelook limit (40 in vanilla) applies on top." />
+                                        <ui:SettingSlider Label="Curve" Minimum="0.5" Maximum="3" Step="0.05" Format="0.00" Value="{Binding Settings.YawCurve}"
+                                                          Hint="1 is straight. Above 1: fine control near centre, faster toward the edge." />
+                                        <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.InvertYaw}" Content="Invert" />
+                                    </StackPanel>
+                                </Border>
+                                <Border Grid.Column="2" Style="{StaticResource Card}">
+                                    <StackPanel>
+                                        <TextBlock Text="Up / down (pitch)" Style="{StaticResource CardTitle}" />
+                                        <ui:CurveGraph Height="150" Margin="0,0,0,12" DeadZone="{Binding Settings.PitchDeadZone}" Gain="{Binding Settings.PitchSensitivity}"
+                                                       Max="{Binding Settings.MaxPitch}" Curve="{Binding Settings.PitchCurve}" Current="{Binding Live.RelativePitch}" />
+                                        <ui:SettingSlider Label="Sensitivity" Minimum="0.5" Maximum="6" Step="0.1" Format="0.0" Unit="x" Value="{Binding Settings.PitchSensitivity}" />
+                                        <ui:SettingSlider Label="Dead zone" Minimum="0" Maximum="10" Step="0.1" Format="0.0" Unit="&#x00B0;" Value="{Binding Settings.PitchDeadZone}" />
+                                        <ui:SettingSlider Label="Furthest tilt" Minimum="5" Maximum="90" Step="1" Format="0" Unit="&#x00B0;" Value="{Binding Settings.MaxPitch}"
+                                                          Hint="The game allows about 50 up and 20 down." />
+                                        <ui:SettingSlider Label="Curve" Minimum="0.5" Maximum="3" Step="0.05" Format="0.00" Value="{Binding Settings.PitchCurve}" />
+                                        <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.InvertPitch}" Content="Invert" />
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
+                            <Border Style="{StaticResource Card}">
+                                <StackPanel>
+                                    <TextBlock Text="Smoothing" Style="{StaticResource CardTitle}" />
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="28" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <ui:SettingSlider Label="Smoothing" Minimum="0" Maximum="1" Step="0.05" Format="0.00" Value="{Binding Settings.Smoothing}"
+                                                          Hint="Removes jitter while your head is still. 0 is off." />
+                                        <ui:SettingSlider Grid.Column="2" Label="Fast movement response" Minimum="0" Maximum="1" Step="0.05" Format="0.00" Value="{Binding Settings.FastMoveResponse}"
+                                                          Hint="How much quick turns cut through the smoothing. Higher is snappier." />
+                                    </Grid>
+                                    <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.AutoCenterOnStart}" Content="Centre automatically when tracking starts" />
+                                </StackPanel>
+                            </Border>
+                            <Button Content="Reset this page to defaults" HorizontalAlignment="Left" Command="{Binding ResetResponseCommand}" />
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+
+                <!-- ===== Zoom ============================================================ -->
+                <TabItem>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="28,22">
+                        <StackPanel MaxWidth="820" HorizontalAlignment="Left">
+                            <TextBlock Text="Lean to zoom" Style="{StaticResource PageTitle}" />
+                            <TextBlock Text="Lean toward the screen to narrow the field of view a little, as if you looked closer. Sitting back undoes it. Never active while aiming down sights; the scope owns the view then." Style="{StaticResource PageSubtitle}" />
+                            <Border Style="{StaticResource Card}">
+                                <StackPanel>
+                                    <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.ZoomEnabled}" Content="Lean to zoom" Margin="0,0,0,14" />
+                                    <ui:ZoomMeter Height="60" Lean="{Binding HeadZ}" DeadZone="{Binding Settings.ZoomDeadZoneCm}" Full="{Binding Settings.ZoomFullCm}" Zoom="{Binding ZoomPercent}" />
+                                    <TextBlock Text="{Binding ZoomText}" Style="{StaticResource Hint}" Margin="0,0,0,12" />
+                                    <ui:SettingSlider Label="Start zooming after leaning in" Minimum="0" Maximum="10" Step="0.5" Format="0.0" Unit="cm" Value="{Binding Settings.ZoomDeadZoneCm}" />
+                                    <ui:SettingSlider Label="Full zoom at" Minimum="3" Maximum="25" Step="0.5" Format="0.0" Unit="cm" Value="{Binding Settings.ZoomFullCm}" />
+                                    <ui:SettingSlider Label="Zoom amount" Minimum="2" Maximum="35" Step="1" Format="0" Unit="&#x00B0; less field of view" Value="{Binding Settings.ZoomMaxFov}"
+                                                      Hint="At full zoom. With a 75&#x00B0; field of view, 15 less is about 1.3x magnification." />
+                                </StackPanel>
+                            </Border>
+                            <TextBlock Text="Distance comes from the size of your face in the camera image; OpenTrack sources send it too. Centre (Recenter) sets the zero point." Style="{StaticResource Hint}" Margin="0,0,0,14" />
+                            <Button Content="Reset this page to defaults" HorizontalAlignment="Left" Command="{Binding ResetZoomCommand}" />
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+
+                <!-- ===== In game ========================================================= -->
+                <TabItem>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="28,22">
+                        <StackPanel>
+                            <TextBlock Text="In game" Style="{StaticResource PageTitle}" />
+                            <TextBlock Text="When head tracking steps aside, what happens when tracking drops out, and the keys that work inside the game." Style="{StaticResource PageSubtitle}" />
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="14" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel>
+                                    <Border Style="{StaticResource Card}">
+                                        <StackPanel>
+                                            <TextBlock Text="Pause head tracking" Style="{StaticResource CardTitle}" />
+                                            <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.PauseWhileAiming}" Content="While aiming down sights (keeps the sight picture and recoil vanilla)" />
+                                            <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.PauseWhenCursorVisible}" Content="While the mouse cursor shows (inventory, menus, map)" />
+                                            <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.PauseWhenUnfocused}" Content="While the game window is not focused" />
+                                            <TextBlock Text="Dialogs, cutscenes, loading and death always pause it." Style="{StaticResource Hint}" Margin="0,6,0,10" />
+                                            <ui:SettingSlider Label="Pause fade" Minimum="0" Maximum="1000" Step="25" Format="0" Unit="ms" Value="{Binding Settings.PauseFadeMs}"
+                                                              Hint="How long pausing and resuming take, so the view never snaps." />
+                                        </StackPanel>
+                                    </Border>
+                                    <Border Style="{StaticResource Card}">
+                                        <StackPanel>
+                                            <TextBlock Text="Keys in game" Style="{StaticResource CardTitle}" />
+                                            <TextBlock Text="Recenter" FontWeight="SemiBold" Margin="0,0,0,6" />
+                                            <StackPanel Orientation="Horizontal">
+                                                <ComboBox Width="170" ItemsSource="{Binding Keys}" DisplayMemberPath="Name" SelectedValuePath="Code" SelectedValue="{Binding Settings.RecenterKey}" />
+                                                <CheckBox Content="Ctrl" IsChecked="{Binding Settings.RecenterCtrl}" Margin="14,0,10,0" />
+                                                <CheckBox Content="Shift" IsChecked="{Binding Settings.RecenterShift}" Margin="0,0,10,0" />
+                                                <CheckBox Content="Alt" IsChecked="{Binding Settings.RecenterAlt}" />
+                                            </StackPanel>
+                                            <TextBlock Text="Turn on / off" FontWeight="SemiBold" Margin="0,14,0,6" />
+                                            <StackPanel Orientation="Horizontal">
+                                                <ComboBox Width="170" ItemsSource="{Binding Keys}" DisplayMemberPath="Name" SelectedValuePath="Code" SelectedValue="{Binding Settings.ToggleKey}" />
+                                                <CheckBox Content="Ctrl" IsChecked="{Binding Settings.ToggleCtrl}" Margin="14,0,10,0" />
+                                                <CheckBox Content="Shift" IsChecked="{Binding Settings.ToggleShift}" Margin="0,0,10,0" />
+                                                <CheckBox Content="Alt" IsChecked="{Binding Settings.ToggleAlt}" />
+                                            </StackPanel>
+                                            <TextBlock Text="Read by the game, so they work while you play. F7 and F8 are free in vanilla EFT; Home is the camera-view key and End is used by Hands Are Not Busy." Style="{StaticResource Hint}" Margin="0,8,0,0" />
+                                        </StackPanel>
+                                    </Border>
+                                </StackPanel>
+                                <StackPanel Grid.Column="2">
+                                    <Border Style="{StaticResource Card}">
+                                        <StackPanel>
+                                            <TextBlock Text="When tracking drops out" Style="{StaticResource CardTitle}" />
+                                            <ui:SettingSlider Label="Hold the last position for" Minimum="0" Maximum="3000" Step="50" Format="0" Unit="ms" Value="{Binding Settings.HoldMs}"
+                                                              Hint="Covers a blink, a hand in front of the face, a dropped frame." />
+                                            <ui:SettingSlider Label="Then ease back to centre over" Minimum="0" Maximum="3000" Step="50" Format="0" Unit="ms" Value="{Binding Settings.ReturnMs}" />
+                                            <ui:SettingSlider Label="When it comes back, glide in over" Minimum="0" Maximum="2000" Step="50" Format="0" Unit="ms" Value="{Binding Settings.RecoveryFadeMs}"
+                                                              Hint="Also used after a recenter. No jumps." />
+                                            <ui:SettingSlider Label="Tracker silent for" Minimum="50" Maximum="2000" Step="50" Format="0" Unit="ms" Value="{Binding Settings.NoDataTimeoutMs}"
+                                                              Hint="No data at all for this long counts as lost (camera unplugged, OpenTrack closed)." />
+                                            <ui:SettingSlider Label="OpenTrack pose frozen for" Minimum="0" Maximum="3000" Step="50" Format="0" Unit="ms" Value="{Binding Settings.FrozenTimeoutMs}"
+                                                              Visibility="{Binding FrozenTimeoutVisibility}"
+                                                              Hint="OpenTrack resends its last pose unchanged when it loses your face. 0 turns this check off." />
+                                        </StackPanel>
+                                    </Border>
+                                </StackPanel>
+                            </Grid>
+                            <Button Content="Reset this page to defaults" HorizontalAlignment="Left" Command="{Binding ResetInGameCommand}" />
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+
+                <!-- ===== Diagnostics ===================================================== -->
+                <TabItem>
+                    <Grid Margin="28,22">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="Diagnostics" Style="{StaticResource PageTitle}" />
+                            <TextBlock Text="What the app is doing. The same lines are in HeadTrackingApp\logs\HeadTracking.log; the game's side is in BepInEx\LogOutput.log." Style="{StaticResource PageSubtitle}" />
+                        </StackPanel>
+                        <Border Grid.Row="1" Style="{StaticResource Card}">
+                            <StackPanel>
+                                <TextBlock Text="{Binding PluginText}" TextWrapping="Wrap" />
+                                <TextBlock Text="{Binding TrackerDetail}" Style="{StaticResource Hint}" Margin="0,6,0,0" />
+                                <TextBlock Text="{Binding RatesText}" Style="{StaticResource Hint}" />
+                                <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                                    <Button Content="Open log folder" Command="{Binding OpenLogFolderCommand}" />
+                                    <Button Content="Copy log" Margin="10,0,0,0" Command="{Binding CopyLogCommand}" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+                        <Border Grid.Row="2" Style="{StaticResource Card}" Padding="0" Margin="0">
+                            <ListBox ItemsSource="{Binding LogLines}" Background="Transparent" BorderThickness="0" Padding="12,8"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingPanel.IsVirtualizing="True"
+                                     ui:AutoScroll.Enabled="True">
+                                <ListBox.ItemContainerStyle>
+                                    <Style TargetType="ListBoxItem">
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="ListBoxItem">
+                                                    <ContentPresenter Margin="0,1" />
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                    </Style>
+                                </ListBox.ItemContainerStyle>
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="92" />
+                                                <ColumnDefinition Width="*" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Text="{Binding TimeText}" Style="{StaticResource Mono}" Foreground="{StaticResource SubTextBrush}" />
+                                            <TextBlock Grid.Column="1" Text="{Binding Message}" Style="{StaticResource Mono}" TextWrapping="Wrap" x:Name="Msg" />
+                                        </Grid>
+                                        <DataTemplate.Triggers>
+                                            <DataTrigger Binding="{Binding Level}" Value="Warning">
+                                                <Setter TargetName="Msg" Property="Foreground" Value="{StaticResource WarnBrush}" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding Level}" Value="Error">
+                                                <Setter TargetName="Msg" Property="Foreground" Value="{StaticResource BadBrush}" />
+                                            </DataTrigger>
+                                        </DataTemplate.Triggers>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </Border>
+                    </Grid>
+                </TabItem>
+            </TabControl>
+        </Grid>
+    </Grid>
+</Window>

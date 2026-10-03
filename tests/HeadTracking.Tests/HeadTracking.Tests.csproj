@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- annotations: the linked net472 core is written without nullable annotations. -->
+    <Nullable>annotations</Nullable>
+    <IsPackable>false</IsPackable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <!--
+    Linked rather than project referenced. The plugin targets net472 against BepInEx and Unity,
+    which a test host cannot load, so the pure half (src/HeadTracking/Core, which must never
+    reference Unity, WPF or the game) is compiled into the test assembly directly.
+  -->
+  <ItemGroup>
+    <Compile Include="..\..\src\Shared\*.cs" LinkBase="Shared" />
+    <Compile Include="..\..\src\HeadTracking.App\Tracking\*.cs" LinkBase="Tracking" />
+    <Compile Include="..\..\src\HeadTracking.App\Webcam\ImageOps.cs" LinkBase="Webcam" />
+    <Compile Include="..\..\src\HeadTracking.App\Webcam\PoseMath.cs" LinkBase="Webcam" />
+  </ItemGroup>
+
+</Project>

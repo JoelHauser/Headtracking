@@ -1,0 +1,53 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!--
+      .NET Framework 4.8 because it ships with Windows 10 and 11: the exe runs from the SPT folder
+      with nothing to install. SPT's own runtime is .NET 10 *without* the desktop part, so a .NET 10
+      WPF app would make players install another runtime.
+    -->
+    <TargetFramework>net48</TargetFramework>
+    <OutputType>WinExe</OutputType>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>HeadTracking.App</RootNamespace>
+    <!-- The exe players run is HeadTracking.exe. -->
+    <AssemblyName>HeadTracking</AssemblyName>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- ONNX Runtime's native library is x64 only. -->
+    <PlatformTarget>x64</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+    <GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\HeadTracking.ico</ApplicationIcon>
+
+    <!-- Must match AppInfo.Version. -->
+    <Version>0.2.0</Version>
+    <Product>Head Tracking</Product>
+    <Description>Webcam and OpenTrack head tracking for SPT</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FlashCap" Version="1.12.0" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.30.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.Runtime.Serialization" />
+  </ItemGroup>
+
+  <!-- Pure code shared with the BepInEx plugin: the link protocol, the clock, the log queue. -->
+  <ItemGroup>
+    <Compile Include="..\Shared\*.cs" LinkBase="Shared" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\HeadTracking.ico" />
+  </ItemGroup>
+
+</Project>

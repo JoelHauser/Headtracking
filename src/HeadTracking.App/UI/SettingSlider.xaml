@@ -1,0 +1,26 @@
+<UserControl x:Class="HeadTracking.App.UI.SettingSlider"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Name="Root" Margin="0,4,0,10">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <TextBlock Text="{Binding Label, ElementName=Root}" FontWeight="SemiBold" />
+        <TextBlock Grid.Column="1" Text="{Binding ValueText, ElementName=Root}" Foreground="{StaticResource AccentBrush}"
+                   FontWeight="SemiBold" HorizontalAlignment="Right" />
+        <Slider Grid.Row="1" Grid.ColumnSpan="2" Margin="0,4,0,0"
+                Minimum="{Binding Minimum, ElementName=Root}" Maximum="{Binding Maximum, ElementName=Root}"
+                SmallChange="{Binding Step, ElementName=Root}" LargeChange="{Binding Step, ElementName=Root}"
+                TickFrequency="{Binding Step, ElementName=Root}" IsSnapToTickEnabled="True"
+                Value="{Binding Value, ElementName=Root, Mode=TwoWay}" />
+        <TextBlock Grid.Row="2" Grid.ColumnSpan="2" Text="{Binding Hint, ElementName=Root}" Style="{StaticResource Hint}"
+                   Visibility="{Binding HintVisibility, ElementName=Root}" />
+    </Grid>
+</UserControl>
