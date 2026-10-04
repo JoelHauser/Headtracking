@@ -20,8 +20,10 @@ It comes in two parts:
 > 3° head shift now moves the view under 1° (it was almost 4°), while a deliberate turn still reaches
 > the full look. A new **Sensitivity** slider on the Overview turns it down further. It also fixes a
 > softness "like motion blur": 0.4.0 kept the camera inching by tiny amounts even with a still head,
-> and DLSS, FSR and TAA only sharpen a picture that stops. Now a held view does not move at all. Not
-> yet played in raid in this form.
+> and DLSS, FSR and TAA only sharpen a picture that stops. Now a held view does not move at all.
+> And it is lighter: when you are not playing, the tracker drops to an *eco* rate (about a quarter
+> of the CPU), and it leaves one file in the SPT root instead of three. Not yet played in raid in
+> this form.
 
 ## Features
 
@@ -46,6 +48,10 @@ It comes in two parts:
   underlying setting is still there to fine-tune.
 - **Smooth in game.** The view glides between camera frames at your frame rate instead of stepping
   30 times a second.
+- **Light on the PC.** The tracker uses about a fifth of one CPU core while you play, and about a
+  twentieth when you are not: with no raid running, a screen open in raid, or the game alt-tabbed
+  (and this window in the background), it runs at half rate without the mirrored check, and is
+  back to full quality within a tenth of a second of you playing again.
 - **You can see what it does.** The Overview shows a *Live motion* graph: your head angle before
   filtering against what the game shows, over the last 8 seconds. Next to it, a *Tracking quality* card rates
   the tracker's measured jitter and names the one change most likely to help, such as more light or
@@ -70,8 +76,10 @@ It comes in two parts:
 - Nothing else to install. The app runs on .NET Framework 4.8, which is part of Windows. If it ever
   reports that ONNX Runtime cannot load, install the
   [Microsoft Visual C++ 2015-2022 Redistributable (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe).
-- CPU: the webcam tracker takes about 7 ms of one core per camera frame, or roughly a quarter of
-  one core at 30 fps. Turning off "Check every frame twice" or choosing the Fast model halves that.
+- CPU: the webcam tracker takes about 7 ms of CPU per camera frame with the default Balanced model
+  and the mirrored check: about a fifth of one core at 30 fps, while you play (eco: a twentieth).
+  Turning off "Check every frame twice" halves that for about 10% more jitter; the Fast model with
+  the check costs the same as Balanced without it. Measured with `HeadTracking.exe --benchmark`.
 
 ## Install
 
@@ -79,15 +87,20 @@ Download `HeadTracking-<version>.zip` from Releases and unzip it **over your SPT
 with `EscapeFromTarkov.exe`). You get:
 
 ```
-HeadTracking.exe                      <- start this
-HeadTracking.exe.config
-HeadTrackingApp\                      <- the app's libraries, the face models, its settings and logs
-BepInEx\plugins\HeadTracking.Plugin.dll
+HeadTracking.exe                      <- start this; the only file in the SPT root
+HeadTrackingApp\                      <- everything else the app needs and writes:
+    README.md, THIRD-PARTY-NOTICES.md
+    lib\                                 libraries (ONNX Runtime, camera capture)
+    models\                              the face models
+    logs\, settings.json                 created on first start
+BepInEx\plugins\HeadTracking\HeadTracking.Plugin.dll
 ```
 
-**Upgrading:** close the game and the app first, then unzip over the old version. On first start
-the app moves settings that were the cause of a problem to the new defaults, and logs what it
-changed:
+**Upgrading:** close the game and the app first, then unzip over the old version. Versions up to
+0.4.0 put more files in the SPT root (`HeadTracking.exe.config`, `HeadTracking-README.md`) and the
+plugin loose in `BepInEx\plugins`; 0.5.0 removes those old files itself on first start. On first
+start the app also moves settings that were the cause of a problem to the new defaults, and logs
+what it changed:
 
 - From 0.2.0 or 0.3.0: the smoothing settings, the model (to Balanced) and the mirrored check (on),
   because the old values were the ones that shook.
@@ -166,7 +179,7 @@ head tracking.
 | "Looking for your face" never changes | Under about 40/255 brightness the room is too dark; the quality card says so, and Diagnostics shows the value. Face the camera; try a lower face-detection confidence. |
 | The camera runs under 25 fps | Turn on "Keep the full frame rate" (Tracking source), add light, or shorten the exposure in Camera settings. |
 | "Not tracking" with an error | The message says what to do: camera in use by another program (Discord, OBS, Teams, a browser), no camera found, or Windows' camera privacy setting. |
-| "Game not connected" in raid | The plugin must be in `BepInEx\plugins`. The game's log, `BepInEx\LogOutput.log`, has lines starting `[Info :Head Tracking]`; look for `Listening for HeadTracking.exe` and `HeadTracking.exe connected`. |
+| "Game not connected" in raid | The plugin must be in `BepInEx\plugins\HeadTracking`. The game's log, `BepInEx\LogOutput.log`, has lines starting `[Info :Head Tracking]`; look for `Listening for HeadTracking.exe` and `HeadTracking.exe connected`. |
 | The view moves the wrong way | Invert that axis on the Response page. The game's log has a `Direction check` line the first time you turn and tilt. |
 | The view drifts back to centre while you hold still (OpenTrack only) | Set OpenTrack's filter dead zones to 0, or raise "OpenTrack pose frozen for" on the In game page. |
 
@@ -242,6 +255,7 @@ numbers only.
 | `--live-jitter [--csv angles.csv]` | Measures the live camera's tracking jitter for each model, crop and mirror option, with the in-game result of each filter setting. Optionally saves the head angles (numbers, not pictures) for `--replay`. |
 | `--replay angles.csv` | Runs recorded or synthetic head angles through a grid of filter settings and scores each on rest motion, lag and error. |
 | `--camera-test` | Measures the frame rate the camera really delivers. |
+| `--benchmark face.png` | Measures the tracker's CPU per frame for each model, thread count and the mirrored check, on a still portrait (no camera). |
 | `--snapshot <folder>` | Renders every page of the window to PNG. |
 
 ## Credits

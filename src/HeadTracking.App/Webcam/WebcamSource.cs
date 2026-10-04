@@ -117,6 +117,14 @@ namespace HeadTracking.App.Webcam
         /// <summary>Set by the UI: when false no preview copies are made.</summary>
         public volatile bool PreviewWanted;
 
+        /// <summary>
+        /// Set by the engine while nobody needs full quality (not in raid, a screen open, the game
+        /// alt-tabbed, and this window in the background): track every other frame without the
+        /// mirrored check, about a quarter of the CPU. Full quality is back on the next frame.
+        /// </summary>
+        public volatile bool Eco;
+        private int _ecoFrame;
+
         public PreviewFrame Preview
         {
             get
@@ -187,8 +195,8 @@ namespace HeadTracking.App.Webcam
         /// <summary>
         /// ONNX Runtime's worker threads busy-wait ("spin") between runs by default, so a network
         /// run 30 times a second for 2 ms kept whole cores busy: the app measured 112% of a core.
-        /// Spinning off, they sleep between frames. The networks are small enough that one thread
-        /// is the sensible default.
+        /// Spinning off, they sleep between frames. Two threads cost the same CPU as one but halve
+        /// the time per frame; more add overhead (--benchmark).
         /// </summary>
         public static SessionOptions CreateSessionOptions(int threads)
         {
@@ -361,13 +369,24 @@ namespace HeadTracking.App.Webcam
                     _log.Log(LogLevel.Info, "Camera pictures are arriving again.");
                 }
 
+                if (Eco && (_ecoFrame++ & 1) == 1)
+                {
+                    continue;
+                }
+
                 Track(frame, now);
             }
         }
 
         private void Track(GrayImage frame, double now)
         {
-            TrackResult result = _tracker.Process(frame, now, _options());
+            WebcamTrackerOptions options = _options();
+            if (Eco && options.MirrorAverage)
+            {
+                options = options.WithoutMirror();
+            }
+
+            TrackResult result = _tracker.Process(frame, now, options);
             _brightness = MeanBrightness(frame);
             ReportWhileNoFace(result, now);
             Interlocked.Increment(ref _processed);

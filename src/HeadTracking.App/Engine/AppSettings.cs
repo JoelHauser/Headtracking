@@ -58,7 +58,9 @@ namespace HeadTracking.App
             _cameraName = "";
             _cameraFormat = "";
             _model = ModelQuality.Balanced;
-            _inferenceThreads = 1;
+            // Two: the same CPU as one (measured with --benchmark), but each frame is tracked in
+            // about half the time (3.8 ms instead of 7.1), so the head reaches the game sooner.
+            _inferenceThreads = 2;
             _keepFullFrameRate = true;
             _cameraFov = 70;
             _detectionThreshold = 0.5;

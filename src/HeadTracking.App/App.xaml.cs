@@ -25,7 +25,8 @@ namespace HeadTracking.App
             _log = new AppLog(AppPaths.LogDirectory);
             _log.Info(AppInfo.Name + " " + AppInfo.Version + " starting on " + Environment.OSVersion + ", .NET " + Environment.Version + ".");
             _log.Info("Folder: " + AppPaths.ExeDirectory + (AppPaths.InSptFolder ? " (SPT install)" : " (not an SPT install)")
-                      + "; plugin " + (AppPaths.PluginInstalled ? "found" : "NOT found") + " in BepInEx\\plugins.");
+                      + "; plugin " + (AppPaths.PluginInstalled ? "found" : "NOT found") + " in BepInEx\\plugins\\HeadTracking.");
+            LegacyFiles.Clean(_log);
 
             DispatcherUnhandledException += (s, args) =>
             {
@@ -50,6 +51,12 @@ namespace HeadTracking.App
             if (args.Contains("--jitter-test"))
             {
                 Shutdown(Dev.JitterTest.Run(args, _log));
+                return;
+            }
+
+            if (args.Contains("--benchmark"))
+            {
+                Shutdown(Dev.Benchmark.Run(args, _log));
                 return;
             }
 

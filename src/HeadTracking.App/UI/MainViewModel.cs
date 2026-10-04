@@ -158,9 +158,23 @@ namespace HeadTracking.App.UI
         private const int OverviewPage = 0;
         private const int DiagnosticsPage = 4;
 
+        private bool _windowActive = true;
+
+        /// <summary>Set by the window. In front, the webcam tracker always runs at full quality.</summary>
+        public bool WindowActive
+        {
+            get => _windowActive;
+            set
+            {
+                _windowActive = value;
+                UpdatePreviewVisibility();
+            }
+        }
+
         private void UpdatePreviewVisibility()
         {
             _engine.PreviewVisible = !_minimized && _selectedPage == OverviewPage;
+            _engine.AppActive = _windowActive && !_minimized;
         }
 
         private void OpenCameraSettings()
@@ -385,9 +399,9 @@ namespace HeadTracking.App.UI
             : !Settings.ShowPreview ? "Preview off (Tracking page)." : "Waiting for the camera...";
 
         public string PluginText => AppPaths.PluginInstalled
-            ? "Plugin installed: BepInEx\\plugins\\HeadTracking.Plugin.dll"
+            ? "Plugin installed: BepInEx\\plugins\\HeadTracking\\HeadTracking.Plugin.dll"
             : AppPaths.InSptFolder
-                ? "Plugin NOT found in BepInEx\\plugins. Unzip the whole release over your SPT folder."
+                ? "Plugin NOT found in BepInEx\\plugins\\HeadTracking. Unzip the whole release over your SPT folder."
                 : "This app is not in an SPT folder (no EscapeFromTarkov.exe beside it). Put HeadTracking.exe in your SPT folder.";
 
         public ObservableCollection<LogLine> LogLines { get; } = new ObservableCollection<LogLine>();

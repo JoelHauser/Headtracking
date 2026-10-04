@@ -7,9 +7,9 @@
     Run this through PowerShell, not Bash: Bash mangles 'H:\SPT4.1.X' into 'H:SPT4.1.X'.
 
     The zip is unpacked over the SPT root:
-        HeadTracking.exe, HeadTracking.exe.config     the app (two files in the SPT root)
-        HeadTrackingApp\                               its libraries, ONNX Runtime, the face models
-        BepInEx\plugins\HeadTracking.Plugin.dll        the game half
+        HeadTracking.exe                               the app, the only file in the SPT root
+        HeadTrackingApp\                               README, notices, lib\ (libraries, ONNX Runtime), models\
+        BepInEx\plugins\HeadTracking\                  the game half
     Entries are written by hand with forward slashes: PowerShell 5.1's Compress-Archive writes
     backslashes, which some extractors turn into file names instead of folders.
 
@@ -82,27 +82,32 @@ $appBin = Join-Path $root 'src\HeadTracking.App\bin\Release'
 $dist = Join-Path $root 'dist'
 $staging = Join-Path $dist 'staging'
 if (Test-Path $staging) { Remove-Item $staging -Recurse -Force }
+# The SPT root gets HeadTracking.exe and nothing else beside it; the rest is in two folders:
+#   HeadTrackingApp\  README.md, THIRD-PARTY-NOTICES.md, lib\ (libraries), models\
+#   BepInEx\plugins\HeadTracking\HeadTracking.Plugin.dll
 $dataDir = Join-Path $staging 'HeadTrackingApp'
-New-Item -ItemType Directory -Force -Path (Join-Path $dataDir 'models'), (Join-Path $staging 'BepInEx\plugins') | Out-Null
+$libDir = Join-Path $dataDir 'lib'
+$pluginDir = Join-Path $staging 'BepInEx\plugins\HeadTracking'
+New-Item -ItemType Directory -Force -Path (Join-Path $dataDir 'models'), $libDir, $pluginDir | Out-Null
 
-Copy-Item (Join-Path $appBin 'HeadTracking.exe'), (Join-Path $appBin 'HeadTracking.exe.config') $staging
-Get-ChildItem $appBin -Filter *.dll | Copy-Item -Destination $dataDir
+Copy-Item (Join-Path $appBin 'HeadTracking.exe') $staging
+Get-ChildItem $appBin -Filter *.dll | Copy-Item -Destination $libDir
 foreach ($m in $models) { Copy-Item (Join-Path $ModelsPath $m) (Join-Path $dataDir 'models') }
 Copy-Item (Join-Path $root 'THIRD-PARTY-NOTICES.md') $dataDir
-Copy-Item $pluginDll (Join-Path $staging 'BepInEx\plugins')
-Copy-Item (Join-Path $root 'README.md') (Join-Path $staging 'HeadTracking-README.md')
+Copy-Item (Join-Path $root 'README.md') (Join-Path $dataDir 'README.md')
+Copy-Item $pluginDll $pluginDir
 
-$required = @('HeadTracking.exe', 'HeadTracking.exe.config', 'HeadTrackingApp\onnxruntime.dll', 'HeadTrackingApp\Microsoft.ML.OnnxRuntime.dll',
-    'HeadTrackingApp\FlashCap.dll', 'HeadTrackingApp\FlashCap.Core.dll', 'HeadTrackingApp\System.Memory.dll',
-    'HeadTrackingApp\models\head-localizer.onnx', 'BepInEx\plugins\HeadTracking.Plugin.dll')
+$required = @('HeadTracking.exe', 'HeadTrackingApp\README.md', 'HeadTrackingApp\lib\onnxruntime.dll', 'HeadTrackingApp\lib\Microsoft.ML.OnnxRuntime.dll',
+    'HeadTrackingApp\lib\FlashCap.dll', 'HeadTrackingApp\lib\FlashCap.Core.dll', 'HeadTrackingApp\lib\System.Memory.dll',
+    'HeadTrackingApp\models\head-localizer.onnx', 'BepInEx\plugins\HeadTracking\HeadTracking.Plugin.dll')
 foreach ($r in $required) { if (-not (Test-Path (Join-Path $staging $r))) { throw "Staged layout is missing $r" } }
-if (-not (Select-String -Path (Join-Path $staging 'HeadTracking.exe.config') -Pattern 'privatePath="HeadTrackingApp"' -Quiet)) {
-    throw 'HeadTracking.exe.config lost its probing path; the exe would not find its libraries.'
-}
+$rootFiles = @(Get-ChildItem $staging -File | ForEach-Object Name)
+if ($rootFiles.Count -ne 1 -or $rootFiles[0] -ne 'HeadTracking.exe') { throw "Only HeadTracking.exe belongs in the SPT root; staged: $($rootFiles -join ', ')" }
+if (Get-ChildItem $dataDir -Filter *.dll -File) { throw 'Libraries belong in HeadTrackingApp\lib, not HeadTrackingApp.' }
 
 # ---- smoke test the staged layout ----------------------------------------------------
-# Runs the real exe from the real layout (libraries via the probing path, ONNX Runtime from
-# HeadTrackingApp\) on a still face image. Proves the package loads, not just that it builds.
+# Runs the real exe from the real layout (libraries found in HeadTrackingApp\lib by the exe's own
+# resolver, no .exe.config) on a still face image. Proves the package loads, not just that it builds.
 $face = Join-Path $SPTPath 'SPT_Runtime\SPT_Data\images\trader\avatar\59b91cab86f77469aa5343ca.png'
 if (Test-Path $face) {
     $out = Join-Path $dist 'smoke-test.txt'
@@ -143,12 +148,24 @@ if ($Install) {
         Write-Host "Moved the 0.1.0 plugin (same GUID) to $backup" -ForegroundColor Yellow
     }
 
-    Copy-Item (Join-Path $staging 'HeadTracking.exe'), (Join-Path $staging 'HeadTracking.exe.config') $SPTPath -Force
+    Copy-Item (Join-Path $staging 'HeadTracking.exe') $SPTPath -Force
     $target = Join-Path $SPTPath 'HeadTrackingApp'
-    New-Item -ItemType Directory -Force -Path (Join-Path $target 'models') | Out-Null
+    foreach ($sub in 'lib', 'models') {
+        New-Item -ItemType Directory -Force -Path (Join-Path $target $sub) | Out-Null
+        Get-ChildItem (Join-Path $dataDir $sub) -File | Copy-Item -Destination (Join-Path $target $sub) -Force
+    }
     Get-ChildItem $dataDir -File | Copy-Item -Destination $target -Force
-    Get-ChildItem (Join-Path $dataDir 'models') -File | Copy-Item -Destination (Join-Path $target 'models') -Force
-    Copy-Item (Join-Path $staging 'BepInEx\plugins\HeadTracking.Plugin.dll') (Join-Path $SPTPath 'BepInEx\plugins') -Force
-    Copy-Item (Join-Path $staging 'HeadTracking-README.md') $SPTPath -Force
-    Write-Host "Installed to $SPTPath (HeadTracking.exe, HeadTrackingApp\, BepInEx\plugins\HeadTracking.Plugin.dll)" -ForegroundColor Green
+    $targetPlugins = Join-Path $SPTPath 'BepInEx\plugins\HeadTracking'
+    New-Item -ItemType Directory -Force -Path $targetPlugins | Out-Null
+    Copy-Item (Join-Path $pluginDir 'HeadTracking.Plugin.dll') $targetPlugins -Force
+
+    # The 0.4.0 and earlier layout: a config and README beside the exe, libraries loose in
+    # HeadTrackingApp\, the plugin loose in BepInEx\plugins (a second copy would load twice).
+    $legacy = @((Join-Path $SPTPath 'HeadTracking.exe.config'), (Join-Path $SPTPath 'HeadTracking-README.md'),
+        (Join-Path $SPTPath 'BepInEx\plugins\HeadTracking.Plugin.dll'))
+    $legacy += Get-ChildItem $target -Filter *.dll -File | Where-Object { Test-Path (Join-Path $target "lib\$($_.Name)") } | ForEach-Object FullName
+    foreach ($f in $legacy) {
+        if (Test-Path $f) { Remove-Item $f -Force; Write-Host "Removed old-layout file $f" -ForegroundColor Yellow }
+    }
+    Write-Host "Installed to $SPTPath (HeadTracking.exe, HeadTrackingApp\, BepInEx\plugins\HeadTracking\)" -ForegroundColor Green
 }

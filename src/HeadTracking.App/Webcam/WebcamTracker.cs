@@ -3,6 +3,14 @@ namespace HeadTracking.App.Webcam
 {
     public sealed class WebcamTrackerOptions
     {
+        /// <summary>The same options with the mirrored check off (eco).</summary>
+        public WebcamTrackerOptions WithoutMirror()
+        {
+            WebcamTrackerOptions copy = (WebcamTrackerOptions)MemberwiseClone();
+            copy.MirrorAverage = false;
+            return copy;
+        }
+
         /// <summary>The camera's diagonal field of view in degrees.</summary>
         public float CameraFov = 70f;
 

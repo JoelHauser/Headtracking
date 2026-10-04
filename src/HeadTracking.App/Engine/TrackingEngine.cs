@@ -96,8 +96,6 @@ namespace HeadTracking.App
         private long _lastSampleCount;
         private double _lastLiveYaw, _lastLivePitch, _shakeSum;
         private long _shakeCount;
-        private TimeSpan _lastCpu;
-        private double _lastCpuTime;
         private double _cpuPercent;
 
         /// <summary>Raised on the engine thread when the in-game toggle key changed Enabled.</summary>
@@ -114,6 +112,17 @@ namespace HeadTracking.App
 
         /// <summary>Set by the UI: only make preview images while someone can see them.</summary>
         public volatile bool PreviewVisible = true;
+
+        /// <summary>Set by the window: true while it is the active window and not minimized.</summary>
+        public volatile bool AppActive = true;
+
+        // While the game shows one of these, nothing in raid needs the head: eco. Aiming is not
+        // here: an aiming pause lasts a moment and must hand back at full quality.
+        private const PauseReason IdleReasons = PauseReason.ScreenOpen | PauseReason.CursorVisible | PauseReason.DialogOrCutscene
+                                                | PauseReason.Unfocused | PauseReason.NotFirstPerson | PauseReason.Disabled;
+
+        private int _statusEcoTicks, _ecoChangesLogged;
+        private CpuMeter _cpuMeter;
 
         public void Start()
         {
@@ -238,8 +247,7 @@ namespace HeadTracking.App
             double now = Clock.Now();
             _lastTickRateTime = now;
             _nextStatusLog = now + StatusLogSeconds;
-            _lastCpuTime = now;
-            _lastCpu = Process.GetCurrentProcess().TotalProcessorTime;
+            _cpuMeter = new CpuMeter(now);
             while (!_stopping)
             {
                 handles[0] = _wake;
@@ -267,6 +275,24 @@ namespace HeadTracking.App
             if (_source is WebcamSource webcam)
             {
                 webcam.PreviewWanted = _settings.ShowPreview && PreviewVisible;
+                bool eco = !AppActive && !GameWantsTracking(now);
+                if (eco != webcam.Eco)
+                {
+                    webcam.Eco = eco;
+                    if (_ecoChangesLogged < 4)
+                    {
+                        _ecoChangesLogged++;
+                        _log.Info(eco
+                            ? "Eco: not playing and this window is in the background, so the webcam is tracked at half rate without the mirrored check."
+                            : "Full quality: " + (AppActive ? "this window is in front." : "head tracking is applying in raid.")
+                              + (_ecoChangesLogged == 4 ? " (Further switches only show in the Status line.)" : ""));
+                    }
+                }
+
+                if (eco)
+                {
+                    _statusEcoTicks++;
+                }
             }
 
             PoseSnapshot snapshot = default;
@@ -517,6 +543,17 @@ namespace HeadTracking.App
             });
         }
 
+        /// <summary>In raid, nothing open, game in front, tracking switched on: the head matters now.</summary>
+        private bool GameWantsTracking(double now)
+        {
+            if (!_settings.Enabled || _link == null || !_link.TryGetStatus(out StatusMessage status, out double time) || now - time >= GameTimeoutSeconds)
+            {
+                return false;
+            }
+
+            return status.InRaid && ((PauseReason)status.PauseReasons & IdleReasons) == 0;
+        }
+
         private void PublishSnapshot(double now)
         {
             StatusMessage status = default;
@@ -571,10 +608,7 @@ namespace HeadTracking.App
             double span = now - (_nextStatusLog - StatusLogSeconds);
             _nextStatusLog = now + StatusLogSeconds;
 
-            TimeSpan cpu = Process.GetCurrentProcess().TotalProcessorTime;
-            _cpuPercent = (cpu - _lastCpu).TotalSeconds / Math.Max(0.001, now - _lastCpuTime) * 100.0;
-            _lastCpu = cpu;
-            _lastCpuTime = now;
+            _cpuPercent = _cpuMeter?.Percent(now) ?? 0;
 
             SourceStatus src = _status;
             string source;
@@ -594,6 +628,8 @@ namespace HeadTracking.App
             }
 
             double tracking = _statusTicks > 0 ? 100.0 * _statusTrackingTicks / _statusTicks : 0;
+            double ecoShare = _statusTicks > 0 ? 100.0 * _statusEcoTicks / _statusTicks : 0;
+            _statusEcoTicks = 0;
             string shake = _shakeCount > 0 ? (_shakeSum / _shakeCount).ToString("0.00") + " deg/frame" : "n/a";
             _statusTicks = _statusTrackingTicks = 0;
             _shakeSum = 0;
@@ -608,7 +644,8 @@ namespace HeadTracking.App
                       + " | noise " + _tracker.NoiseEstimate.ToString("0.00") + " deg, stillness band " + _tracker.StillnessBandInUse.ToString("0.00")
                       + " deg | output change " + shake + " | head yaw " + HeadTracker.Deg(_tracker.RelativeYaw) + " pitch " + HeadTracker.Deg(_tracker.RelativePitch)
                       + " -> game yaw " + HeadTracker.Deg(_tracker.OutputYaw) + " pitch " + HeadTracker.Deg(_tracker.OutputPitch)
-                      + " | game " + gameText + " | engine " + _tickRate.ToString("0") + " ticks/s, app CPU " + _cpuPercent.ToString("0") + "% of one core");
+                      + " | game " + gameText + " | engine " + _tickRate.ToString("0") + " ticks/s, app CPU " + _cpuPercent.ToString("0") + "% of one core"
+                      + (_source is WebcamSource ? ", eco " + ecoShare.ToString("0") + "% of the time" : ""));
         }
 
         public void Dispose()

@@ -20,6 +20,8 @@ namespace HeadTracking.App.UI
             SourceInitialized += (s, e) => UseDarkTitleBar();
             viewModel.OwnerHandle = () => new WindowInteropHelper(this).Handle;
             StateChanged += (s, e) => viewModel.Minimized = WindowState == WindowState.Minimized;
+            Activated += (s, e) => viewModel.WindowActive = true;
+            Deactivated += (s, e) => viewModel.WindowActive = false;
         }
 
         /// <summary>A dark title bar to match (Windows 10 2004 and later; harmless elsewhere).</summary>

@@ -124,7 +124,7 @@ namespace HeadTracking.App.Dev
         }
 
         /// <summary>The image scaled so it is 240 px tall, on a 640x480 grey background.</summary>
-        private static Bitmap Compose(Bitmap source, bool mirror, int shiftX)
+        internal static Bitmap Compose(Bitmap source, bool mirror, int shiftX)
         {
             Bitmap canvas = new Bitmap(640, 480);
             using (Graphics g = Graphics.FromImage(canvas))
