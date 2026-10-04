@@ -83,7 +83,7 @@
                     <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="28,22">
                         <StackPanel>
                             <TextBlock Text="Overview" Style="{StaticResource PageTitle}" />
-                            <TextBlock Text="Turn your head a little: the left pad shows your head, the right pad what the game is told. Turning right should move both to the right." Style="{StaticResource PageSubtitle}" />
+                            <TextBlock Text="Turn your head a little: both pads and the graph follow. The view in game is the amber line; the grey line is what it would do with no filtering at all." Style="{StaticResource PageSubtitle}" />
 
                             <Border Style="{StaticResource Card}" Background="#33E06A6A" BorderBrush="{StaticResource BadBrush}" Visibility="{Binding SourceErrorVisibility}">
                                 <StackPanel Orientation="Horizontal">
@@ -110,15 +110,16 @@
                                 <Border Style="{StaticResource Card}">
                                     <StackPanel>
                                         <TextBlock Text="Your head" Style="{StaticResource CardTitle}" />
-                                        <ui:HeadPad Height="220" X="{Binding HeadX}" Y="{Binding HeadY}" Range="30" Active="{Binding Tracking}"
+                                        <ui:HeadPad Height="210" X="{Binding HeadX}" Y="{Binding HeadY}" GhostX="{Binding GhostX}" GhostY="{Binding GhostY}" Range="25" Active="{Binding Tracking}"
                                                     DeadX="{Binding Settings.YawDeadZone}" DeadY="{Binding Settings.PitchDeadZone}" Caption="real degrees" />
                                         <TextBlock Text="{Binding HeadText}" Style="{StaticResource Hint}" Margin="0,8,0,0" />
+                                        <TextBlock Text="Faint dot: the tracker's raw reading. Solid dot: after filtering." Style="{StaticResource Hint}" />
                                     </StackPanel>
                                 </Border>
                                 <Border Grid.Column="2" Style="{StaticResource Card}">
                                     <StackPanel>
                                         <TextBlock Text="In game" Style="{StaticResource CardTitle}" />
-                                        <ui:HeadPad Height="220" X="{Binding OutX}" Y="{Binding OutY}" Range="50" Active="{Binding Tracking}"
+                                        <ui:HeadPad Height="210" X="{Binding OutX}" Y="{Binding OutY}" Range="50" Active="{Binding Tracking}"
                                                     LimitX="{Binding Settings.MaxYaw}" LimitY="{Binding Settings.MaxPitch}" Caption="game degrees" />
                                         <TextBlock Text="{Binding OutText}" Style="{StaticResource Hint}" Margin="0,8,0,0" />
                                     </StackPanel>
@@ -126,7 +127,7 @@
                                 <Border Grid.Column="4" Style="{StaticResource Card}">
                                     <StackPanel>
                                         <TextBlock Text="Camera" Style="{StaticResource CardTitle}" />
-                                        <Grid Height="220">
+                                        <Grid Height="210">
                                             <Viewbox Visibility="{Binding PreviewVisibility}">
                                                 <Grid Width="{Binding PreviewWidth}" Height="{Binding PreviewHeight}" RenderTransformOrigin="0.5,0.5">
                                                     <Grid.RenderTransform><ScaleTransform ScaleX="-1" /></Grid.RenderTransform>
@@ -140,7 +141,63 @@
                                             <TextBlock Text="{Binding NoPreviewText}" Style="{StaticResource Hint}" HorizontalAlignment="Center" VerticalAlignment="Center"
                                                        Visibility="{Binding NoPreviewVisibility}" />
                                         </Grid>
-                                        <TextBlock Text="Mirrored, like a mirror. The box is the face being tracked." Style="{StaticResource Hint}" Margin="0,8,0,0" />
+                                        <TextBlock Text="Mirrored, like a mirror. Shown here only; never saved." Style="{StaticResource Hint}" Margin="0,8,0,0" />
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
+
+                            <Border Style="{StaticResource Card}">
+                                <StackPanel>
+                                    <Grid>
+                                        <TextBlock Text="Live motion" Style="{StaticResource CardTitle}" />
+                                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                            <Rectangle Width="18" Height="2" Fill="#FF6B727A" VerticalAlignment="Center" />
+                                            <TextBlock Text="unfiltered" Style="{StaticResource Hint}" Margin="6,0,16,0" />
+                                            <Rectangle Width="18" Height="3" Fill="{StaticResource AccentBrush}" VerticalAlignment="Center" />
+                                            <TextBlock Text="view in game" Style="{StaticResource Hint}" Margin="6,0,0,0" />
+                                        </StackPanel>
+                                    </Grid>
+                                    <ui:MotionGraph Height="190" History="{Binding History}" Revision="{Binding HistoryRevision}" />
+                                </StackPanel>
+                            </Border>
+
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="1.3*" />
+                                    <ColumnDefinition Width="14" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Border Style="{StaticResource Card}">
+                                    <StackPanel>
+                                        <TextBlock Text="Feel" Style="{StaticResource CardTitle}" />
+                                        <Grid Margin="0,0,0,2">
+                                            <TextBlock Text="Responsive" Style="{StaticResource Hint}" />
+                                            <TextBlock Text="{Binding FeelText}" Foreground="{StaticResource AccentBrush}" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                                            <TextBlock Text="Smooth" Style="{StaticResource Hint}" HorizontalAlignment="Right" />
+                                        </Grid>
+                                        <Slider Minimum="0" Maximum="1" SmallChange="0.05" LargeChange="0.05" TickFrequency="0.05" IsSnapToTickEnabled="True" Value="{Binding Settings.Feel}" />
+                                        <TextBlock Style="{StaticResource Hint}" Margin="0,8,0,0"
+                                                   Text="Left: the view follows your head sooner, and small movements get through. Right: the view holds dead still until you really turn, and glides more. The default was tuned on measured webcam noise; the Response page has each part on its own." />
+                                    </StackPanel>
+                                </Border>
+                                <Border Grid.Column="2" Style="{StaticResource Card}">
+                                    <StackPanel>
+                                        <Grid>
+                                            <TextBlock Text="Tracking quality" Style="{StaticResource CardTitle}" />
+                                            <TextBlock Text="{Binding QualityText}" Foreground="{Binding QualityBrush}" FontWeight="SemiBold" HorizontalAlignment="Right" />
+                                        </Grid>
+                                        <Grid Height="8" Margin="0,2,0,8">
+                                            <Border CornerRadius="4" Background="{StaticResource TrackBrush}" />
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="{Binding QualityFill}" />
+                                                    <ColumnDefinition Width="{Binding QualityRest}" />
+                                                </Grid.ColumnDefinitions>
+                                                <Border CornerRadius="4" Background="{Binding QualityBrush}" />
+                                            </Grid>
+                                        </Grid>
+                                        <TextBlock Text="{Binding QualityDetail}" Style="{StaticResource Hint}" />
+                                        <TextBlock Text="{Binding QualityTip}" TextWrapping="Wrap" Margin="0,8,0,0" Visibility="{Binding QualityTipVisibility}" />
                                     </StackPanel>
                                 </Border>
                             </Grid>
@@ -211,8 +268,10 @@
                                     <StackPanel>
                                         <TextBlock Text="Face tracking" Style="{StaticResource CardTitle}" />
                                         <TextBlock Text="Model" FontWeight="SemiBold" Margin="0,0,0,6" />
-                                        <ComboBox ItemsSource="{Binding Models}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding Settings.Model}" />
+                                        <ComboBox ItemsSource="{Binding Models}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding Settings.Model}" Margin="0,0,0,0" />
                                         <TextBlock Text="OpenTrack's open-source neural head-pose models. Each frame costs a few milliseconds of CPU." Style="{StaticResource Hint}" Margin="0,6,0,12" />
+                                        <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.MirrorAverage}" Content="Check every frame twice (mirrored)" />
+                                        <TextBlock Text="Also reads each frame mirrored and averages the two answers: about a third less jitter, for about double the network time (still only a few milliseconds)." Style="{StaticResource Hint}" Margin="52,0,0,12" />
                                         <ui:SettingSlider Label="CPU threads" Minimum="1" Maximum="4" Step="1" Format="0" Value="{Binding Settings.InferenceThreads}"
                                                           Hint="Threads the networks may use. 1 is plenty (about 2 ms a frame) and leaves the most for the game." />
                                         <ui:SettingSlider Label="Camera field of view" Minimum="40" Maximum="110" Step="1" Format="0" Unit="&#x00B0; diagonal" Value="{Binding Settings.CameraFov}"
@@ -284,7 +343,14 @@
                             </Grid>
                             <Border Style="{StaticResource Card}">
                                 <StackPanel>
-                                    <TextBlock Text="Steadiness and smoothing" Style="{StaticResource CardTitle}" />
+                                    <TextBlock Text="Smoothness" Style="{StaticResource CardTitle}" />
+                                    <Grid Margin="0,0,0,2">
+                                        <TextBlock Text="Feel: responsive" Style="{StaticResource Hint}" />
+                                        <TextBlock Text="{Binding FeelText}" Foreground="{StaticResource AccentBrush}" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                                        <TextBlock Text="smooth" Style="{StaticResource Hint}" HorizontalAlignment="Right" />
+                                    </Grid>
+                                    <Slider Minimum="0" Maximum="1" SmallChange="0.05" LargeChange="0.05" TickFrequency="0.05" IsSnapToTickEnabled="True" Value="{Binding Settings.Feel}" />
+                                    <TextBlock Text="Moving Feel sets the four below. Fine-tune them afterwards if you like." Style="{StaticResource Hint}" Margin="0,6,0,14" />
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*" />
@@ -294,17 +360,24 @@
                                         <Grid.RowDefinitions>
                                             <RowDefinition Height="Auto" />
                                             <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
                                         </Grid.RowDefinitions>
-                                        <ui:SettingSlider Label="Steadiness" Minimum="0" Maximum="3" Step="0.1" Format="0.0" Value="{Binding Settings.Steadiness}"
-                                                          Hint="Holds the view still against the camera's frame-to-frame noise, scaled by how sure the tracker is about each frame. 0 is off; 1 is OpenTrack's default. Webcam only." />
-                                        <ui:SettingSlider Grid.Column="2" Label="Motion smoothing" Minimum="0" Maximum="200" Step="5" Format="0" Unit="ms" Value="{Binding Settings.MotionSmoothingMs}"
-                                                          Hint="In the game, glides between camera updates at your frame rate instead of stepping 30 times a second. Higher is smoother, with that much more delay." />
-                                        <ui:SettingSlider Grid.Row="1" Label="Smoothing" Minimum="0" Maximum="1" Step="0.05" Format="0.00" Value="{Binding Settings.Smoothing}"
-                                                          Hint="Removes jitter while your head is still. 0 is off." />
-                                        <ui:SettingSlider Grid.Row="1" Grid.Column="2" Label="Fast movement response" Minimum="0" Maximum="1" Step="0.05" Format="0.00" Value="{Binding Settings.FastMoveResponse}"
+                                        <ui:SettingSlider Label="Stillness" Minimum="0" Maximum="3" Step="0.05" Format="0.00" Value="{Binding Settings.Stillness}"
+                                                          Hint="Holds the view dead still while your head is still. Sized from the tracker's measured noise; 1 is the tuned value, 0 is off. Higher ignores bigger small movements." />
+                                        <ui:SettingSlider Grid.Column="2" Label="Motion smoothing" Minimum="0" Maximum="150" Step="5" Format="0" Unit="ms" Value="{Binding Settings.MotionSmoothingMs}"
+                                                          Hint="In the game, glides between camera updates at your frame rate instead of stepping 30 times a second. Higher is smoother, with about that much more delay." />
+                                        <ui:SettingSlider Grid.Row="1" Label="Steadiness" Minimum="0" Maximum="3" Step="0.05" Format="0.00" Value="{Binding Settings.Steadiness}"
+                                                          Hint="Damps each camera frame by how unsure the tracker says it is (OpenTrack's method). Webcam only." />
+                                        <ui:SettingSlider Grid.Row="1" Grid.Column="2" Label="Smoothing" Minimum="0" Maximum="1" Step="0.05" Format="0.00" Value="{Binding Settings.Smoothing}"
+                                                          Hint="Classic low-pass smoothing (1-euro filter). With stillness on, little is needed: it adds delay." />
+                                        <ui:SettingSlider Grid.Row="2" Label="Fast movement response" Minimum="0" Maximum="1" Step="0.05" Format="0.00" Value="{Binding Settings.FastMoveResponse}"
                                                           Hint="How much quick turns cut through the smoothing. Higher is snappier." />
+                                        <StackPanel Grid.Row="2" Grid.Column="2" Margin="0,4,0,0">
+                                            <TextBlock Text="{Binding NoiseText}" FontWeight="SemiBold" />
+                                            <TextBlock Text="Live: the tracker's jitter on your face right now, and the stillness band built from it." Style="{StaticResource Hint}" />
+                                        </StackPanel>
                                     </Grid>
-                                    <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.AutoCenterOnStart}" Content="Centre automatically when tracking starts" />
+                                    <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.AutoCenterOnStart}" Content="Centre automatically when tracking starts" Margin="0,8,0,0" />
                                 </StackPanel>
                             </Border>
                             <Button Content="Reset this page to defaults" HorizontalAlignment="Left" Command="{Binding ResetResponseCommand}" />

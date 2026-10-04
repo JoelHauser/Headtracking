@@ -59,7 +59,24 @@ namespace HeadTracking.Tracking
         public double Steadiness = 1.0;
 
         /// <summary>0 off, 1 heaviest. See <see cref="HeadTracker.MinCutoffFor"/>.</summary>
-        public double Smoothing = 0.5;
+        public double Smoothing = 0;
+
+        /// <summary>
+        /// Stillness lock strength, as a multiple of the automatic band (1.5 x the tracker noise
+        /// measured as it runs). 0 is off. Head movement smaller than the band, from where the view
+        /// last settled, does not move it; bigger movement is followed at once (trailing by the
+        /// band). A still head then gives a still view, which no linear smoothing achieves alone.
+        /// </summary>
+        public double Stillness = 1.0;
+
+        /// <summary>A fixed band in head degrees instead of the automatic one (tests, replays). 0: automatic.</summary>
+        public double StillnessBand;
+
+        /// <summary>
+        /// Seconds over which a held view creeps to where the head really is, so the lock never
+        /// leaves it off by the band. 0: no creep.
+        /// </summary>
+        public double StillnessCreep = 4.0;
 
         /// <summary>0 to 1. How much fast head movement cuts through the smoothing.</summary>
         public double FastMoveResponse = 0.5;
@@ -121,6 +138,15 @@ namespace HeadTracking.Tracking
 
         private bool _steadyPrimed;
         private double _steadyYaw, _steadyPitch;
+        private bool _stillPrimed;
+        private double _stillYaw, _stillPitch;
+
+        // Noise estimate: frame-to-frame changes of the raw angle over the last ~3 s.
+        private readonly double[] _steps = new double[90];
+        private int _stepCount, _stepNext;
+        private double _lastRawYaw = double.NaN, _lastRawPitch;
+        private double _noise = 0.5;
+        private int _samplesSinceNoise;
 
         private double _heldYaw, _heldPitch;
         private double _lossStart, _returnStart;
@@ -148,6 +174,20 @@ namespace HeadTracking.Tracking
         public double SteadyPitch => _steadyPitch;
         public double SmoothedYaw { get; private set; }
         public double SmoothedPitch { get; private set; }
+
+        /// <summary>
+        /// The tracker's noise, estimated as it runs: the one-sigma frame-to-frame jitter of the raw
+        /// angle, in head degrees, from the 30th percentile of recent 2-D steps (so real movement,
+        /// which is rarer, hardly counts). Starts at 0.5.
+        /// </summary>
+        public double NoiseEstimate => _noise;
+
+        /// <summary>The stillness band in use, head degrees.</summary>
+        public double StillnessBandInUse { get; private set; }
+
+        /// <summary>After the stillness lock: the head angle the view is shaped from.</summary>
+        public double SettledYaw => _stillYaw;
+        public double SettledPitch => _stillPitch;
         public double LiveYaw { get; private set; }
         public double LivePitch { get; private set; }
         public double LastSigma { get; private set; }
@@ -257,7 +297,9 @@ namespace HeadTracking.Tracking
             _yawFilter.Unprime();
             _pitchFilter.Unprime();
             _steadyPrimed = false;
+            _stillPrimed = false;
             _lastSample = double.NaN;
+            _lastRawYaw = double.NaN;
         }
 
         private static LossKind Classify(bool hasSnapshot, PoseSnapshot snapshot, double now, TrackingSettings s)
@@ -294,6 +336,7 @@ namespace HeadTracking.Tracking
             RelativeYaw = Wrap180(pose.Yaw - _centerYaw);
             RelativePitch = Wrap180(pose.Pitch - _centerPitch);
             LastSigma = sigma;
+            EstimateNoise(pose.Yaw, pose.Pitch);
 
             // Steadiness: move toward the new pose by a fraction that depends on how big the step
             // is compared with the network's own uncertainty for this frame.
@@ -328,8 +371,68 @@ namespace HeadTracking.Tracking
                 SmoothedPitch = _steadyPitch;
             }
 
-            LiveYaw = YawSign * (s.InvertYaw ? -1 : 1) * Shape(SmoothedYaw, s.YawDeadZone, s.YawGain, s.MaxYaw, s.YawCurve);
-            LivePitch = PitchSign * (s.InvertPitch ? -1 : 1) * Shape(SmoothedPitch, s.PitchDeadZone, s.PitchGain, s.MaxPitch, s.PitchCurve);
+            Settle(dt, s);
+
+            LiveYaw = YawSign * (s.InvertYaw ? -1 : 1) * Shape(_stillYaw, s.YawDeadZone, s.YawGain, s.MaxYaw, s.YawCurve);
+            LivePitch = PitchSign * (s.InvertPitch ? -1 : 1) * Shape(_stillPitch, s.PitchDeadZone, s.PitchGain, s.MaxPitch, s.PitchCurve);
+        }
+
+        /// <summary>
+        /// The stillness lock: a radial backlash on the smoothed head angle. Inside the band the view
+        /// holds (and only creeps toward the head over <see cref="TrackingSettings.StillnessCreep"/>);
+        /// beyond it the view follows, trailing by the band.
+        /// </summary>
+        private void EstimateNoise(double yaw, double pitch)
+        {
+            if (!double.IsNaN(_lastRawYaw))
+            {
+                double dy = Wrap180(yaw - _lastRawYaw), dp = pitch - _lastRawPitch;
+                _steps[_stepNext] = Math.Sqrt(dy * dy + dp * dp);
+                _stepNext = (_stepNext + 1) % _steps.Length;
+                _stepCount = Math.Min(_stepCount + 1, _steps.Length);
+                if (++_samplesSinceNoise >= 15 && _stepCount >= 30)
+                {
+                    _samplesSinceNoise = 0;
+                    double[] sorted = new double[_stepCount];
+                    Array.Copy(_steps, sorted, _stepCount);
+                    Array.Sort(sorted);
+                    // 2-D steps of white noise with per-axis sigma s are Rayleigh with scale s*sqrt(2);
+                    // its 30th percentile is 0.845 * s * sqrt(2) = 1.195 s.
+                    double estimate = Clamp(sorted[(int)(0.3 * sorted.Length)] / 1.195, 0.05, 3.0);
+                    _noise = _noise + 0.3 * (estimate - _noise);
+                }
+            }
+
+            _lastRawYaw = yaw;
+            _lastRawPitch = pitch;
+        }
+
+        private void Settle(double dt, TrackingSettings s)
+        {
+            double band = s.StillnessBand > 0 ? s.StillnessBand : s.Stillness * 1.5 * _noise;
+            StillnessBandInUse = band;
+            if (!_stillPrimed || band <= 0)
+            {
+                _stillYaw = SmoothedYaw;
+                _stillPitch = SmoothedPitch;
+                _stillPrimed = true;
+                return;
+            }
+
+            double ey = SmoothedYaw - _stillYaw, ep = SmoothedPitch - _stillPitch;
+            double e = Math.Sqrt(ey * ey + ep * ep);
+            if (e > band)
+            {
+                double k = (e - band) / e;
+                _stillYaw += ey * k;
+                _stillPitch += ep * k;
+            }
+            else if (s.StillnessCreep > 0 && dt > 0)
+            {
+                double c = 1.0 - Math.Exp(-dt / s.StillnessCreep);
+                _stillYaw += ey * c;
+                _stillPitch += ep * c;
+            }
         }
 
         /// <summary>

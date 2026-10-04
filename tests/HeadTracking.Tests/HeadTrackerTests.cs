@@ -6,7 +6,7 @@ namespace HeadTracking.Tests;
 public class HeadTrackerTests
 {
     /// <summary>No smoothing and no fades, so the shaping maths can be checked exactly.</summary>
-    private static TrackingSettings Sharp() => new() { AutoCenterOnStart = false, Smoothing = 0, RecoveryFade = 0 };
+    private static TrackingSettings Sharp() => new() { AutoCenterOnStart = false, Stillness = 0, Smoothing = 0, RecoveryFade = 0 };
 
     // Defaults: dead zone 1.5, yaw gain 2.5, pitch gain 2.0, max yaw 40, max pitch 30.
     // OpenTrack yaw +10 -> (10 - 1.5) * 2.5 = 21.25, and the game sign flips it.
@@ -164,7 +164,7 @@ public class HeadTrackerTests
     [Fact]
     public void RecoveringWhileHoldingGlidesToTheNewPositionInsteadOfJumping()
     {
-        var rig = new Rig(new TrackingSettings { AutoCenterOnStart = false, Smoothing = 0 });
+        var rig = new Rig(new TrackingSettings { AutoCenterOnStart = false, Stillness = 0, Smoothing = 0 });
         var a = rig.Hold(0.5, 15, 0);
         var b = rig.Run(0.6, rig.Resend);
         Assert.Equal(TrackState.Holding, rig.Tracker.State);
@@ -182,7 +182,7 @@ public class HeadTrackerTests
     [Fact]
     public void RecoveringFromRestFadesInFromCentre()
     {
-        var rig = new Rig(new TrackingSettings { AutoCenterOnStart = false, Smoothing = 0 });
+        var rig = new Rig(new TrackingSettings { AutoCenterOnStart = false, Stillness = 0, Smoothing = 0 });
         rig.Hold(0.5, 15, 0);
         rig.Run(3.0, rig.Resend);
         Assert.Equal(TrackState.Lost, rig.Tracker.State);
@@ -196,7 +196,7 @@ public class HeadTrackerTests
     [Fact]
     public void TheVeryFirstPoseFadesInToo()
     {
-        var rig = new Rig(new TrackingSettings { AutoCenterOnStart = false, Smoothing = 0 });
+        var rig = new Rig(new TrackingSettings { AutoCenterOnStart = false, Stillness = 0, Smoothing = 0 });
         var first = rig.Hold(0.5, 15, 0);
 
         Assert.True(Math.Abs(first[0].Yaw) < 5.0, "first frame " + first[0].Yaw);
@@ -206,7 +206,7 @@ public class HeadTrackerTests
     [Fact]
     public void RecenterMakesTheCurrentHeadPositionStraightAheadSmoothly()
     {
-        var rig = new Rig(new TrackingSettings { AutoCenterOnStart = false, Smoothing = 0 });
+        var rig = new Rig(new TrackingSettings { AutoCenterOnStart = false, Stillness = 0, Smoothing = 0 });
         var a = rig.Hold(0.5, 20, -5);
         Assert.NotEqual(0.0, rig.Tracker.OutputYaw);
 
@@ -243,8 +243,8 @@ public class HeadTrackerTests
             return settled.Max() - settled.Min();
         }
 
-        double raw = PeakToPeak(new TrackingSettings { AutoCenterOnStart = false, Smoothing = 0 });
-        double smoothed = PeakToPeak(new TrackingSettings { AutoCenterOnStart = false, Smoothing = 0.5 });
+        double raw = PeakToPeak(new TrackingSettings { AutoCenterOnStart = false, Stillness = 0, Smoothing = 0 });
+        double smoothed = PeakToPeak(new TrackingSettings { AutoCenterOnStart = false, Stillness = 0, Smoothing = 0.5 });
 
         Assert.True(raw > 1.0, "raw " + raw);
         Assert.True(smoothed < raw * 0.25, "smoothed " + smoothed + " vs raw " + raw);
@@ -253,7 +253,7 @@ public class HeadTrackerTests
     [Fact]
     public void SmoothingStillFollowsAFastTurnQuickly()
     {
-        var rig = new Rig(new TrackingSettings { AutoCenterOnStart = false, RecoveryFade = 0 });
+        var rig = new Rig(new TrackingSettings { AutoCenterOnStart = false, Stillness = 0, RecoveryFade = 0 });
         rig.Hold(0.5, 0, 0);
         rig.Hold(0.15, 20, 0);
 

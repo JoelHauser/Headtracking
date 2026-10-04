@@ -53,7 +53,7 @@ internal sealed class Rig
 
     public Rig(TrackingSettings? settings = null)
     {
-        Settings = settings ?? new TrackingSettings { AutoCenterOnStart = false };
+        Settings = settings ?? new TrackingSettings { AutoCenterOnStart = false, Stillness = 0 };
         Tracker = new HeadTracker(Log);
     }
 

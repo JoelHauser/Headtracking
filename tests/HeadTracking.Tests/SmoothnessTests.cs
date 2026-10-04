@@ -20,7 +20,7 @@ public class SmoothnessTests
     {
         var random = new Random(3);
         var tracker = new HeadTracker(new ListLog());
-        var settings = new TrackingSettings { AutoCenterOnStart = false, Steadiness = steadiness, Smoothing = smoothing, RecoveryFade = 0 };
+        var settings = new TrackingSettings { AutoCenterOnStart = false, Stillness = 0, Steadiness = steadiness, Smoothing = smoothing, RecoveryFade = 0 };
         double previous = double.NaN, sum = 0;
         int n = 0;
         for (int i = 0; i < 300; i++)
@@ -62,7 +62,7 @@ public class SmoothnessTests
     public void ARealTurnStillGetsThrough()
     {
         var tracker = new HeadTracker(new ListLog());
-        var settings = new TrackingSettings { AutoCenterOnStart = false, Steadiness = 1.0, Smoothing = 0.5, RecoveryFade = 0 };
+        var settings = new TrackingSettings { AutoCenterOnStart = false, Stillness = 0, Steadiness = 1.0, Smoothing = 0.5, RecoveryFade = 0 };
         for (int i = 0; i < 60; i++)
         {
             double t = 10 + i / 30.0;
@@ -84,7 +84,7 @@ public class SmoothnessTests
         // The engine ticks faster than the camera; repeated ticks on the same pose must not keep
         // moving the filtered value (that was 0.2.0's per-tick 1-euro, which made every new
         // frame a visible jerk).
-        var rig = new Rig(new TrackingSettings { AutoCenterOnStart = false, Smoothing = 0.8, RecoveryFade = 0 });
+        var rig = new Rig(new TrackingSettings { AutoCenterOnStart = false, Stillness = 0, Smoothing = 0.8, RecoveryFade = 0 });
         rig.Hold(0.5, 0, 0);
         rig.Send(20, 0);
         rig.Tick();

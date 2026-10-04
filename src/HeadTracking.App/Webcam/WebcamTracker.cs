@@ -15,6 +15,17 @@ namespace HeadTracking.App.Webcam
         /// away; a limit turns that into a clean "face lost".
         /// </summary>
         public double UncertainTrustSeconds = 1.0;
+
+        /// <summary>
+        /// How much of the network's new face box the crop for the next frame takes, 0..1. The box
+        /// comes from the network's own (noisy) output and decides what it sees next, so its noise
+        /// feeds back into the pose. OpenTrack's roi_filter_alpha, there 1 (no damping). Large
+        /// moves are always followed at once.
+        /// </summary>
+        public float RoiSmoothing = 0.3f;
+
+        /// <summary>Run the pose network on the crop and its mirror image and average them.</summary>
+        public bool MirrorAverage = true;
     }
 
     public struct TrackResult
@@ -133,7 +144,7 @@ namespace HeadTracking.App.Webcam
                 return result;
             }
 
-            Face? face = _poseEstimator.Run(frame, _lastRoi.Value);
+            Face? face = _poseEstimator.Run(frame, _lastRoi.Value, options.MirrorAverage);
             result.PoseMs = _poseEstimator.LastMilliseconds;
             if (face == null)
             {
@@ -143,7 +154,7 @@ namespace HeadTracking.App.Webcam
             }
 
             Face f = face.Value;
-            _lastRoi = f.Box;
+            _lastRoi = DampRoi(_lastRoi.Value, f.Box, options.RoiSmoothing);
             result.FaceBox = f.Box;
 
             CamIntrinsics intrinsics = Intrinsics(frame.Width, frame.Height, options.CameraFov);
@@ -161,6 +172,25 @@ namespace HeadTracking.App.Webcam
             result.Pose = pose;
             result.RotationSigma = f.RotationSigmaDegrees;
             return result;
+        }
+
+        /// <summary>
+        /// The crop for the next frame: the new box blended into the last by <paramref name="alpha"/>
+        /// (OpenTrack's ewa_filter on centre and size), unless the face really moved (the boxes
+        /// overlap less than 60%), which is followed at once.
+        /// </summary>
+        public static RectF DampRoi(RectF last, RectF current, float alpha)
+        {
+            if (alpha >= 1f || RectF.IoU(last, current) < 0.6f)
+            {
+                return current;
+            }
+
+            float cx = last.CenterX + alpha * (current.CenterX - last.CenterX);
+            float cy = last.CenterY + alpha * (current.CenterY - last.CenterY);
+            float w = last.Width + alpha * (current.Width - last.Width);
+            float h = last.Height + alpha * (current.Height - last.Height);
+            return new RectF(cx - w * 0.5f, cy - h * 0.5f, w, h);
         }
 
         /// <summary>The width of the coarsest level of OpenTrack's pyramid: halved while 640 or wider.</summary>

@@ -22,6 +22,10 @@
     Seconds to wait before sending, so there is time to click back into the game: the mod pauses
     while the game window is not focused. Default 8.
 
+.PARAMETER Noise
+    Per-frame tracker jitter to add, in degrees (one sigma). 0.47 is what a C920 measured on a
+    still face; the default 0.03 is near noise-free.
+
 .PARAMETER Mode
     scenario  (default) A walk-through of every behaviour, announced phase by phase:
               centre, look left, right, up, down, face lost (hold then return), recovery,
@@ -42,7 +46,8 @@ param(
     [double] $Pitch = 0,
     [int] $Port = 4242,
     [string] $HostName = '127.0.0.1',
-    [int] $Delay = 8
+    [int] $Delay = 8,
+    [double] $Noise = 0.03
 )
 
 $ErrorActionPreference = 'Stop'
@@ -87,8 +92,9 @@ function Run-Phase([string] $label, [double] $duration, [scriptblock] $poseAt, [
                 if ($null -ne $angles) {
                     # Sensor-like noise, a few hundredths of a degree, so the pose is never
                     # bit-identical while "tracking" (the mod reads identical as "face lost").
-                    $jy = ($random.NextDouble() - 0.5) * 0.06
-                    $jp = ($random.NextDouble() - 0.5) * 0.06
+                    # Approximately Gaussian: the sum of three uniforms, scaled to sigma = $Noise.
+                    $jy = (($random.NextDouble() + $random.NextDouble() + $random.NextDouble()) - 1.5) * 2 * $Noise
+                    $jp = (($random.NextDouble() + $random.NextDouble() + $random.NextDouble()) - 1.5) * 2 * $Noise
                     $script:lastPose = Encode @(0.0, 0.0, 50.0, ($angles[0] + $jy), ($angles[1] + $jp), 0.0)
                 }
                 elseif ($null -eq $script:lastPose) {

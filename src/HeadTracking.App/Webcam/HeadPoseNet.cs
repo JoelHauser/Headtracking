@@ -164,8 +164,19 @@ namespace HeadTracking.App.Webcam
                    + string.Join(", ", _session.OutputMetadata.Select(o => o.Key + " " + Localizer.Dims(o.Value)));
         }
 
-        /// <summary>Null when the crop is degenerate or the network fails.</summary>
-        public Face? Run(GrayImage frame, RectF box)
+        /// <summary>The raw outputs of one network run, in the network's own crop coordinates.</summary>
+        private struct Outputs
+        {
+            public float[] PosSize, Quat, Box, RotationTril;
+        }
+
+        /// <summary>
+        /// Null when the crop is degenerate or the network fails. With <paramref name="mirrorAverage"/>
+        /// the network also sees the crop mirrored left to right, and the two answers are averaged:
+        /// its errors on the two images are partly independent, so they partly cancel (at twice the
+        /// cost, about 2 ms more).
+        /// </summary>
+        public Face? Run(GrayImage frame, RectF box, bool mirrorAverage = false)
         {
             int patchSize = (int)Math.Round(Math.Max(box.Width, box.Height));
             if (patchSize < 8)
@@ -180,27 +191,49 @@ namespace HeadTracking.App.Webcam
             ImageOps.NormalizeBrightness(_patch, _patch.Length, _input);
 
             Stopwatch watch = Stopwatch.StartNew();
-            float[] posSize, quat, outBox, rotationTril = null;
-            try
-            {
-                using (IDisposableReadOnlyCollection<DisposableNamedOnnxValue> results =
-                       _session.Run(new[] { NamedOnnxValue.CreateFromTensor(_inputName, _tensor) }, _outputs))
-                {
-                    posSize = Get(results, "pos_size");
-                    quat = Get(results, "quat");
-                    outBox = Get(results, "box");
-                    if (_hasRotationUncertainty)
-                    {
-                        rotationTril = Get(results, "rotaxis_scales_tril");
-                    }
-                }
-            }
-            catch (OnnxRuntimeException)
+            if (!Infer(out Outputs o))
             {
                 return null;
             }
 
+            float sigma = o.RotationTril == null ? 0f : RotationSigma(o.RotationTril);
+            if (mirrorAverage)
+            {
+                MirrorRows(_input, InputWidth, InputHeight);
+                if (Infer(out Outputs m))
+                {
+                    // Undo the mirror. In the network's image frame (x right, y down, z into the
+                    // picture) a left-right flip is the reflection x -> -x, which maps a rotation's
+                    // quaternion (w, x, y, z) to (w, x, -y, -z): yaw and roll change sign, pitch not.
+                    float[] mq = { m.Quat[0], -m.Quat[1], -m.Quat[2], m.Quat[3] };
+                    float dot = o.Quat[0] * mq[0] + o.Quat[1] * mq[1] + o.Quat[2] * mq[2] + o.Quat[3] * mq[3];
+                    float s = dot < 0 ? -1f : 1f;
+                    for (int i = 0; i < 4; i++)
+                    {
+                        o.Quat[i] = 0.5f * (o.Quat[i] + s * mq[i]);
+                    }
+
+                    o.PosSize[0] = 0.5f * (o.PosSize[0] - m.PosSize[0]);
+                    o.PosSize[1] = 0.5f * (o.PosSize[1] + m.PosSize[1]);
+                    o.PosSize[2] = 0.5f * (o.PosSize[2] + m.PosSize[2]);
+                    float x0 = 0.5f * (o.Box[0] - m.Box[2]), x1 = 0.5f * (o.Box[2] - m.Box[0]);
+                    o.Box[0] = x0;
+                    o.Box[2] = x1;
+                    o.Box[1] = 0.5f * (o.Box[1] + m.Box[1]);
+                    o.Box[3] = 0.5f * (o.Box[3] + m.Box[3]);
+                    if (m.RotationTril != null)
+                    {
+                        // Averaging two partly independent estimates: report the smaller spread honestly
+                        // as the mean of the two, not less; the steadiness filter is tuned on that scale.
+                        sigma = 0.5f * (sigma + RotationSigma(m.RotationTril));
+                    }
+                }
+
+                MirrorRows(_input, InputWidth, InputHeight);
+            }
+
             LastMilliseconds = watch.Elapsed.TotalMilliseconds;
+            float[] posSize = o.PosSize, quat = o.Quat, outBox = o.Box;
 
             float half = 0.5f * patchSize;
             // The network gives quaternions as x, y, z, w.
@@ -218,8 +251,48 @@ namespace HeadTracking.App.Webcam
                 CenterY = cy + half * posSize[1],
                 Size = half * posSize[2],
                 Box = new RectF(cx + half * outBox[0], cy + half * outBox[1], half * (outBox[2] - outBox[0]), half * (outBox[3] - outBox[1])),
-                RotationSigmaDegrees = rotationTril == null ? 0f : RotationSigma(rotationTril),
+                RotationSigmaDegrees = sigma,
             };
+        }
+
+        private bool Infer(out Outputs outputs)
+        {
+            outputs = default;
+            try
+            {
+                using (IDisposableReadOnlyCollection<DisposableNamedOnnxValue> results =
+                       _session.Run(new[] { NamedOnnxValue.CreateFromTensor(_inputName, _tensor) }, _outputs))
+                {
+                    outputs.PosSize = Get(results, "pos_size");
+                    outputs.Quat = Get(results, "quat");
+                    outputs.Box = Get(results, "box");
+                    if (_hasRotationUncertainty)
+                    {
+                        outputs.RotationTril = Get(results, "rotaxis_scales_tril");
+                    }
+                }
+
+                return true;
+            }
+            catch (OnnxRuntimeException)
+            {
+                return false;
+            }
+        }
+
+        /// <summary>Flips each row of a width x height image left to right, in place.</summary>
+        internal static void MirrorRows(float[] image, int width, int height)
+        {
+            for (int y = 0; y < height; y++)
+            {
+                int row = y * width;
+                for (int a = row, b = row + width - 1; a < b; a++, b--)
+                {
+                    float t = image[a];
+                    image[a] = image[b];
+                    image[b] = t;
+                }
+            }
         }
 
         public void Dispose()

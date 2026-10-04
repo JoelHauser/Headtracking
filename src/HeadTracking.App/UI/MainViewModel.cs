@@ -65,6 +65,8 @@ namespace HeadTracking.App.UI
         private LogLine _lastLogLine;
         private int _selectedPage;
         private bool _minimized;
+        private SmoothFollow _viewYaw, _viewPitch;
+        private DateTime _lastRefresh = DateTime.MinValue;
 
         public event PropertyChangedEventHandler PropertyChanged;
 
@@ -132,6 +134,8 @@ namespace HeadTracking.App.UI
             {
                 _selectedPage = value;
                 UpdatePreviewVisibility();
+                // The overview's pads and graph want 30 updates a second; other pages 10 are plenty.
+                _timer.Interval = TimeSpan.FromMilliseconds(value == OverviewPage ? 33 : 100);
                 Raise();
                 if (value == DiagnosticsPage)
                 {
@@ -327,7 +331,30 @@ namespace HeadTracking.App.UI
         public double HeadY { get; private set; }
         public double OutX { get; private set; }
         public double OutY { get; private set; }
+        public double GhostX { get; private set; } = double.NaN;
+        public double GhostY { get; private set; } = double.NaN;
         public bool Tracking { get; private set; }
+
+        public MotionHistory History { get; } = new MotionHistory();
+        public long HistoryRevision { get; private set; }
+
+        public string FeelText
+        {
+            get
+            {
+                double f = Settings.Feel;
+                return f < 0.12 ? "Snappy" : f < 0.4 ? "Balanced" : f < 0.7 ? "Smooth" : "Very smooth";
+            }
+        }
+
+        public string QualityText { get; private set; } = "";
+        public Brush QualityBrush { get; private set; } = Brushes.Gray;
+        public GridLength QualityFill { get; private set; } = new GridLength(0, GridUnitType.Star);
+        public GridLength QualityRest { get; private set; } = new GridLength(1, GridUnitType.Star);
+        public string QualityDetail { get; private set; } = "";
+        public string QualityTip { get; private set; }
+        public Visibility QualityTipVisibility => string.IsNullOrEmpty(QualityTip) ? Visibility.Collapsed : Visibility.Visible;
+        public string NoiseText { get; private set; } = "";
         public string HeadText { get; private set; } = "";
         public string OutText { get; private set; } = "";
         public string RatesText { get; private set; } = "";
@@ -415,11 +442,36 @@ namespace HeadTracking.App.UI
                     : PauseFader.Describe(reasons);
             }
 
-            // Pads: head right/up shown right/up; game output converted the same way (EFT yaw + is left, pitch + is down).
-            HeadX = s.RelativeYaw;
-            HeadY = s.RelativePitch;
-            OutX = -s.OutputYaw;
-            OutY = -s.OutputPitch;
+            // Pads: head right/up shown right/up; game output converted the same way (EFT yaw + is
+            // left, pitch + is down). The head pad shows the filtered angle, with the raw reading as
+            // a faint ghost; the game pad and graph show the view after the same render-rate glide
+            // the plugin applies, so what is drawn here is what the game shows.
+            DateTime nowTime = DateTime.UtcNow;
+            double dt = _lastRefresh == DateTime.MinValue ? 0 : Math.Min(0.25, (nowTime - _lastRefresh).TotalSeconds);
+            _lastRefresh = nowTime;
+            double glide = Settings.MotionSmoothingMs / 1000.0;
+            _viewYaw.Step(-s.OutputYaw, glide, dt);
+            _viewPitch.Step(-s.OutputPitch, glide, dt);
+            _viewYaw.SettleOnZero(-s.OutputYaw);
+            _viewPitch.SettleOnZero(-s.OutputPitch);
+
+            HeadX = tracking ? s.SettledYaw : s.RelativeYaw;
+            HeadY = tracking ? s.SettledPitch : s.RelativePitch;
+            GhostX = s.RelativeYaw;
+            GhostY = s.RelativePitch;
+            OutX = _viewYaw.Value;
+            OutY = _viewPitch.Value;
+
+            if (_selectedPage == OverviewPage)
+            {
+                double rawYaw = -HeadTracker.YawSign * (Settings.InvertYaw ? -1 : 1) * Settings.YawSensitivity * s.RelativeYaw;
+                double rawPitch = -HeadTracker.PitchSign * (Settings.InvertPitch ? -1 : 1) * Settings.PitchSensitivity * s.RelativePitch;
+                History.Add(Clamp(rawYaw, 60), OutX, Clamp(rawPitch, 60), OutY);
+                HistoryRevision++;
+                Raise(nameof(HistoryRevision));
+            }
+
+            UpdateQuality(s, tracking);
             HeadText = "Head  yaw " + s.RelativeYaw.ToString("+0.0;-0.0;0.0") + "°   pitch " + s.RelativePitch.ToString("+0.0;-0.0;0.0") + "°";
             OutText = "In game  yaw " + (-s.OutputYaw).ToString("+0.0;-0.0;0.0") + "°   pitch " + (-s.OutputPitch).ToString("+0.0;-0.0;0.0") + "°";
             RatesText = "Engine " + s.TicksPerSecond.ToString("0") + " ticks/s"
@@ -455,6 +507,8 @@ namespace HeadTracking.App.UI
             Raise(nameof(SourceErrorVisibility));
             Raise(nameof(HeadX));
             Raise(nameof(HeadY));
+            Raise(nameof(GhostX));
+            Raise(nameof(GhostY));
             Raise(nameof(OutX));
             Raise(nameof(OutY));
             Raise(nameof(HeadText));
@@ -462,6 +516,62 @@ namespace HeadTracking.App.UI
             Raise(nameof(RatesText));
             Raise(nameof(FrameRateWarning));
             Raise(nameof(FrameRateWarningVisibility));
+        }
+
+        private static double Clamp(double v, double limit) => v < -limit ? -limit : v > limit ? limit : v;
+
+        /// <summary>
+        /// The tracking quality card: the tracker's measured jitter rated, and the one thing most
+        /// likely to improve it.
+        /// </summary>
+        private void UpdateQuality(EngineSnapshot s, bool tracking)
+        {
+            double noise = s.Noise;
+            double cameraFps = s.Source?.CameraRate ?? 0;
+            double brightness = s.Source?.Brightness ?? -1;
+            if (!tracking)
+            {
+                QualityText = "No face";
+                QualityBrush = Brush("SubTextBrush");
+                QualityFill = new GridLength(0, GridUnitType.Star);
+                QualityRest = new GridLength(1, GridUnitType.Star);
+                QualityDetail = "Face the camera to measure.";
+                QualityTip = brightness >= 0 && brightness < 40 ? "The picture is very dark (" + brightness.ToString("0") + "/255). Light your face from the front." : null;
+            }
+            else
+            {
+                double score = Math.Max(0.05, Math.Min(1.0, 1.0 - (noise - 0.2) / 1.0));
+                QualityText = noise < 0.3 ? "Excellent" : noise < 0.5 ? "Good" : noise < 0.8 ? "Fair" : "Poor";
+                QualityBrush = noise < 0.5 ? Brush("GoodBrush") : noise < 0.8 ? Brush("WarnBrush") : Brush("BadBrush");
+                QualityFill = new GridLength(score, GridUnitType.Star);
+                QualityRest = new GridLength(1 - score, GridUnitType.Star);
+                QualityDetail = "Jitter " + noise.ToString("0.00") + "\u00B0 per frame"
+                                + (cameraFps > 0 ? " \u00B7 camera " + cameraFps.ToString("0") + " fps" : "")
+                                + (brightness >= 0 ? " \u00B7 light " + brightness.ToString("0") + "/255" : "");
+
+                if (Settings.Source == SourceKind.Webcam && cameraFps > 1 && cameraFps < 25)
+                    QualityTip = "The camera only gives " + cameraFps.ToString("0") + " pictures a second: turn on \"Keep the full frame rate\" (Tracking source page) or add light.";
+                else if (noise >= 0.5 && brightness >= 0 && brightness < 60)
+                    QualityTip = "More light on your face would cut the jitter most: a lamp behind or beside the monitor, facing you.";
+                else if (noise >= 0.4 && Settings.Source == SourceKind.Webcam && !Settings.MirrorAverage)
+                    QualityTip = "Turn on \"Check every frame twice\" (Tracking source page).";
+                else if (noise >= 0.4 && Settings.Source == SourceKind.Webcam && Settings.Model == ModelQuality.Fast)
+                    QualityTip = "The Balanced or Accurate model is steadier than Fast (Tracking source page).";
+                else if (noise >= 0.8)
+                    QualityTip = "Sit facing the camera with your whole face in the picture, about an arm's length away.";
+                else
+                    QualityTip = null;
+            }
+
+            NoiseText = tracking ? "Jitter now " + noise.ToString("0.00") + "\u00B0, stillness band " + s.Band.ToString("0.00") + "\u00B0" : "Jitter: no face";
+            Raise(nameof(QualityText));
+            Raise(nameof(QualityBrush));
+            Raise(nameof(QualityFill));
+            Raise(nameof(QualityRest));
+            Raise(nameof(QualityDetail));
+            Raise(nameof(QualityTip));
+            Raise(nameof(QualityTipVisibility));
+            Raise(nameof(NoiseText));
         }
 
         private void RefreshPreview()
@@ -531,6 +641,13 @@ namespace HeadTracking.App.UI
 
         private void OnSettingChanged(object sender, PropertyChangedEventArgs e)
         {
+            if (e.PropertyName == nameof(AppSettings.Feel))
+            {
+                // The one-slider control: sets stillness, motion smoothing, smoothing, steadiness.
+                Settings.ApplyFeel();
+                Raise(nameof(FeelText));
+            }
+
             _engine.Apply(Settings);
             _saveTimer.Stop();
             _saveTimer.Start();

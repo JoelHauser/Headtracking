@@ -9,7 +9,7 @@ public class TrackerFeatureTests
 {
     private static TrackingSettings Sharp(Action<TrackingSettings>? change = null)
     {
-        var s = new TrackingSettings { Smoothing = 0, RecoveryFade = 0 };
+        var s = new TrackingSettings { Smoothing = 0, Stillness = 0, RecoveryFade = 0 };
         change?.Invoke(s);
         return s;
     }

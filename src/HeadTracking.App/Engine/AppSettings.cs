@@ -33,15 +33,27 @@ namespace HeadTracking.App
             SetDefaults();
         }
 
+        /// <summary>
+        /// 4 since 0.4.0. Files from before have none (read as 0); <see cref="Load"/> then moves the
+        /// filter settings to the 0.4.0 defaults, which were tuned on measured camera noise.
+        /// </summary>
+        public const int CurrentVersion = 4;
+
         [OnDeserializing]
         private void OnDeserializing(StreamingContext context)
         {
             SetDefaults();
+            _settingsVersion = 0;
         }
+
+        private int _settingsVersion;
+        [DataMember] public int SettingsVersion { get => _settingsVersion; set => _settingsVersion = value; }
 
         public void SetDefaults()
         {
+            _settingsVersion = CurrentVersion;
             _enabled = true;
+            _mirrorAverage = true;
             _source = SourceKind.Webcam;
             _cameraName = "";
             _cameraFormat = "";
@@ -71,11 +83,50 @@ namespace HeadTracking.App
             PitchCurve = 1.0;
             InvertYaw = false;
             InvertPitch = false;
-            Steadiness = 1.0;
-            Smoothing = 0.5;
             FastMoveResponse = 0.5;
-            MotionSmoothingMs = 60;
             AutoCenterOnStart = true;
+            Feel = DefaultFeel;
+            ApplyFeel();
+        }
+
+        /// <summary>
+        /// The Feel slider's default. Replayed against webcam-sized noise (HeadTracking.exe --replay) it
+        /// moves 3x less than 0.3.0 at rest (1.8 vs 5.2 deg/s) with 40% less lag (63 vs 111 ms).
+        /// </summary>
+        public const double DefaultFeel = 0.25;
+
+        /// <summary>
+        /// Sets the four smoothing settings from <see cref="Feel"/>, 0 (most responsive) to 1
+        /// (smoothest). At 0.25: stillness 1.0, motion smoothing 35 ms, smoothing 0, steadiness 1.0.
+        /// The 1-euro smoothing stays off on the responsive half: with the stillness lock on it only
+        /// added lag, and made the view at rest move more, not less (replay: 2.2 vs 1.6 deg/s).
+        /// </summary>
+        public void ApplyFeel()
+        {
+            double f = Clamp(Feel, 0, 1);
+            Stillness = Math.Round(0.6 + 1.6 * f, 2);
+            MotionSmoothingMs = Math.Round(20 + 60 * f);
+            Smoothing = Math.Round(Math.Max(0, 0.8 * (f - 0.5)), 2);
+            Steadiness = Math.Round(0.8 + 0.8 * f, 2);
+        }
+
+        /// <summary>0.4.0: older files carry 0.2.0/0.3.0 filter values, which shook; move them to the tuned defaults.</summary>
+        public bool Migrate(ILogSink log)
+        {
+            if (SettingsVersion >= CurrentVersion)
+            {
+                return false;
+            }
+
+            log.Log(LogLevel.Info, "Settings from an older version (" + SettingsVersion + "): smoothing settings reset to the 0.4.0 defaults "
+                                   + "(they were " + "smoothing " + Smoothing + ", steadiness " + Steadiness + ", motion smoothing " + MotionSmoothingMs
+                                   + " ms), model " + Model + " -> Balanced, mirror check on.");
+            Feel = DefaultFeel;
+            ApplyFeel();
+            Model = ModelQuality.Balanced;
+            MirrorAverage = true;
+            SettingsVersion = CurrentVersion;
+            return true;
         }
 
         public void ResetInGame()
@@ -128,6 +179,9 @@ namespace HeadTracking.App
         private double _faceLostAfterMs;
         [DataMember] public double FaceLostAfterMs { get => _faceLostAfterMs; set => Set(ref _faceLostAfterMs, Clamp(value, 0, 5000)); }
 
+        private bool _mirrorAverage;
+        [DataMember] public bool MirrorAverage { get => _mirrorAverage; set => Set(ref _mirrorAverage, value); }
+
         private bool _keepFullFrameRate;
         [DataMember] public bool KeepFullFrameRate { get => _keepFullFrameRate; set => Set(ref _keepFullFrameRate, value); }
 
@@ -141,7 +195,7 @@ namespace HeadTracking.App
         // ---- response -------------------------------------------------------------------------
         private double _yawSensitivity, _pitchSensitivity, _yawDeadZone, _pitchDeadZone, _maxYaw, _maxPitch, _yawCurve, _pitchCurve;
         private bool _invertYaw, _invertPitch, _autoCenterOnStart;
-        private double _smoothing, _fastMoveResponse, _steadiness, _motionSmoothingMs;
+        private double _smoothing, _fastMoveResponse, _steadiness, _motionSmoothingMs, _stillness, _feel;
 
         [DataMember] public double YawSensitivity { get => _yawSensitivity; set => Set(ref _yawSensitivity, Clamp(value, 0.1, 8)); }
         [DataMember] public double PitchSensitivity { get => _pitchSensitivity; set => Set(ref _pitchSensitivity, Clamp(value, 0.1, 8)); }
@@ -154,6 +208,8 @@ namespace HeadTracking.App
         [DataMember] public bool InvertYaw { get => _invertYaw; set => Set(ref _invertYaw, value); }
         [DataMember] public bool InvertPitch { get => _invertPitch; set => Set(ref _invertPitch, value); }
         [DataMember] public double Steadiness { get => _steadiness; set => Set(ref _steadiness, Clamp(value, 0, 3)); }
+        [DataMember] public double Stillness { get => _stillness; set => Set(ref _stillness, Clamp(value, 0, 3)); }
+        [DataMember] public double Feel { get => _feel; set => Set(ref _feel, Clamp(value, 0, 1)); }
         [DataMember] public double Smoothing { get => _smoothing; set => Set(ref _smoothing, Clamp(value, 0, 1)); }
         [DataMember] public double MotionSmoothingMs { get => _motionSmoothingMs; set => Set(ref _motionSmoothingMs, Clamp(value, 0, 250)); }
         [DataMember] public double FastMoveResponse { get => _fastMoveResponse; set => Set(ref _fastMoveResponse, Clamp(value, 0, 1)); }
@@ -205,6 +261,7 @@ namespace HeadTracking.App
                 InvertYaw = InvertYaw,
                 InvertPitch = InvertPitch,
                 Steadiness = Steadiness,
+                Stillness = Stillness,
                 Smoothing = Smoothing,
                 FastMoveResponse = FastMoveResponse,
                 AutoCenterOnStart = AutoCenterOnStart,
@@ -246,6 +303,7 @@ namespace HeadTracking.App
                 CameraFov = (float)CameraFov,
                 DetectionThreshold = (float)DetectionThreshold,
                 UncertainTrustSeconds = FaceLostAfterMs / 1000.0,
+                MirrorAverage = MirrorAverage,
             };
         }
 
@@ -269,7 +327,11 @@ namespace HeadTracking.App
             {
                 if (File.Exists(path))
                 {
-                    using (FileStream stream = File.OpenRead(path))
+                    // A byte-order mark (Notepad adds one) makes the JSON reader fail on the first
+                    // character; skip it.
+                    byte[] bytes = File.ReadAllBytes(path);
+                    int start = bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF ? 3 : 0;
+                    using (MemoryStream stream = new MemoryStream(bytes, start, bytes.Length - start))
                     {
                         AppSettings loaded = (AppSettings)new DataContractJsonSerializer(typeof(AppSettings)).ReadObject(stream);
                         log.Log(LogLevel.Info, "Settings loaded from " + path + ".");

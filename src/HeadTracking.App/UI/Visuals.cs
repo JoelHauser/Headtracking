@@ -62,6 +62,8 @@ namespace HeadTracking.App.UI
             new FrameworkPropertyMetadata(false, FrameworkPropertyMetadataOptions.AffectsRender));
         public static readonly DependencyProperty CaptionProperty = DependencyProperty.Register(nameof(Caption), typeof(string), typeof(HeadPad),
             new FrameworkPropertyMetadata("", FrameworkPropertyMetadataOptions.AffectsRender));
+        public static readonly DependencyProperty GhostXProperty = Reg(nameof(GhostX), double.NaN);
+        public static readonly DependencyProperty GhostYProperty = Reg(nameof(GhostY), double.NaN);
 
         public double X { get => (double)GetValue(XProperty); set => SetValue(XProperty, value); }
         public double Y { get => (double)GetValue(YProperty); set => SetValue(YProperty, value); }
@@ -73,10 +75,22 @@ namespace HeadTracking.App.UI
         public bool Active { get => (bool)GetValue(ActiveProperty); set => SetValue(ActiveProperty, value); }
         public string Caption { get => (string)GetValue(CaptionProperty); set => SetValue(CaptionProperty, value); }
 
+        /// <summary>An optional faint second dot (the raw reading behind a filtered one). NaN: none.</summary>
+        public double GhostX { get => (double)GetValue(GhostXProperty); set => SetValue(GhostXProperty, value); }
+        public double GhostY { get => (double)GetValue(GhostYProperty); set => SetValue(GhostYProperty, value); }
+
         private static readonly Pen GridPen = Paint.Pen(Paint.Grid, 1);
         private static readonly Pen AxisPen = Paint.Pen(Paint.Axis, 1);
         private static readonly Pen LimitPen = Paint.Pen(Paint.AccentFaint, 1, true);
         private static readonly Pen DotPen = Paint.Pen(Paint.Background, 2);
+        private static readonly Brush GhostBrush = FrozenBrush(Color.FromArgb(0x70, 0x9B, 0xA1, 0xA8));
+
+        private static Brush FrozenBrush(Color c)
+        {
+            SolidColorBrush b = new SolidColorBrush(c);
+            b.Freeze();
+            return b;
+        }
 
         private static DependencyProperty Reg(string name, double value)
         {
@@ -118,6 +132,12 @@ namespace HeadTracking.App.UI
             {
                 double lx = Math.Min(half, LimitX * scale), ly = Math.Min(half, LimitY * scale);
                 dc.DrawRectangle(null, LimitPen, new Rect(c.X - lx, c.Y - ly, 2 * lx, 2 * ly));
+            }
+
+            if (!double.IsNaN(GhostX) && !double.IsNaN(GhostY) && Active)
+            {
+                Point g = new Point(c.X + Clamp(GhostX * scale, -half + 6, half - 6), c.Y + Clamp(-GhostY * scale, -half + 6, half - 6));
+                dc.DrawEllipse(GhostBrush, null, g, 4, 4);
             }
 
             double x = Clamp(X * scale, -half + 6, half - 6);
@@ -220,6 +240,123 @@ namespace HeadTracking.App.UI
             double cy = plot.Bottom - plot.Height * Math.Min(1, HeadTracker.Shape(current, DeadZone, Gain, max, Curve) / yRange);
             dc.DrawLine(MarkerPen, new Point(cx, plot.Bottom), new Point(cx, cy));
             dc.DrawEllipse(Paint.Good, null, new Point(cx, cy), 4.5, 4.5);
+        }
+    }
+
+    /// <summary>
+    /// The last few seconds of motion for the live graph: the unfiltered angle and the view,
+    /// for left/right and up/down, in game degrees, shown with right and up positive.
+    /// </summary>
+    public sealed class MotionHistory
+    {
+        public const int Capacity = 240;
+
+        public readonly double[] RawYaw = new double[Capacity];
+        public readonly double[] ViewYaw = new double[Capacity];
+        public readonly double[] RawPitch = new double[Capacity];
+        public readonly double[] ViewPitch = new double[Capacity];
+        public int Count;
+        public int Next;
+
+        public void Add(double rawYaw, double viewYaw, double rawPitch, double viewPitch)
+        {
+            RawYaw[Next] = rawYaw;
+            ViewYaw[Next] = viewYaw;
+            RawPitch[Next] = rawPitch;
+            ViewPitch[Next] = viewPitch;
+            Next = (Next + 1) % Capacity;
+            Count = Math.Min(Count + 1, Capacity);
+        }
+
+        /// <summary>The i-th oldest sample index into the arrays.</summary>
+        public int Index(int i)
+        {
+            return (Next - Count + i + Capacity) % Capacity;
+        }
+    }
+
+    /// <summary>
+    /// Two stacked traces (left/right on top, up/down below) of the last few seconds: the
+    /// unfiltered angle thin and grey, the view in game thick and amber. Makes it visible what the
+    /// smoothing removes and how far behind the head the view runs.
+    /// </summary>
+    public sealed class MotionGraph : FrameworkElement
+    {
+        public static readonly DependencyProperty HistoryProperty = DependencyProperty.Register(nameof(History), typeof(MotionHistory), typeof(MotionGraph),
+            new FrameworkPropertyMetadata(null, FrameworkPropertyMetadataOptions.AffectsRender));
+        public static readonly DependencyProperty RevisionProperty = DependencyProperty.Register(nameof(Revision), typeof(long), typeof(MotionGraph),
+            new FrameworkPropertyMetadata(0L, FrameworkPropertyMetadataOptions.AffectsRender));
+
+        public MotionHistory History { get => (MotionHistory)GetValue(HistoryProperty); set => SetValue(HistoryProperty, value); }
+        public long Revision { get => (long)GetValue(RevisionProperty); set => SetValue(RevisionProperty, value); }
+
+        private static readonly Pen RawPen = Paint.Pen(Paint.Muted, 1);
+        private static readonly Pen ViewPen = Paint.Pen(Paint.Accent, 2);
+        private static readonly Pen AxisPen = Paint.Pen(Paint.Axis, 1);
+
+        protected override void OnRender(DrawingContext dc)
+        {
+            double w = ActualWidth, h = ActualHeight;
+            if (w < 60 || h < 60)
+            {
+                return;
+            }
+
+            dc.DrawRoundedRectangle(Paint.Background, Paint.Pen(Paint.Grid, 1), new Rect(0, 0, w, h), 6, 6);
+            double gap = 8, lane = (h - gap * 3) / 2;
+            Rect top = new Rect(70, gap, w - 80, lane), bottom = new Rect(70, gap * 2 + lane, w - 80, lane);
+            MotionHistory history = History;
+            DrawLane(dc, top, "left / right", history, history?.RawYaw, history?.ViewYaw);
+            DrawLane(dc, bottom, "up / down", history, history?.RawPitch, history?.ViewPitch);
+        }
+
+        private static void DrawLane(DrawingContext dc, Rect r, string label, MotionHistory history, double[] raw, double[] view)
+        {
+            double range = 10;
+            if (history != null)
+            {
+                for (int i = 0; i < history.Count; i++)
+                {
+                    int k = history.Index(i);
+                    range = Math.Max(range, Math.Max(Math.Abs(raw[k]), Math.Abs(view[k])));
+                }
+            }
+
+            range = Math.Ceiling(range / 10) * 10;
+            double mid = r.Top + r.Height / 2;
+            dc.DrawLine(AxisPen, new Point(r.Left, mid), new Point(r.Right, mid));
+            Paint.Label(dc, label, new Point(8, mid - 16), Paint.Text, 11);
+            Paint.Label(dc, "\u00B1" + range.ToString("0") + "\u00B0", new Point(8, mid + 1), Paint.Text, 10);
+
+            if (history == null || history.Count < 2)
+            {
+                return;
+            }
+
+            double step = r.Width / (MotionHistory.Capacity - 1);
+            double offset = (MotionHistory.Capacity - history.Count) * step;
+            dc.PushClip(new RectangleGeometry(r));
+            DrawTrace(dc, RawPen, history, raw, r, mid, range, step, offset);
+            DrawTrace(dc, ViewPen, history, view, r, mid, range, step, offset);
+            dc.Pop();
+        }
+
+        private static void DrawTrace(DrawingContext dc, Pen pen, MotionHistory history, double[] values, Rect r, double mid, double range, double step, double offset)
+        {
+            StreamGeometry geometry = new StreamGeometry();
+            using (StreamGeometryContext g = geometry.Open())
+            {
+                for (int i = 0; i < history.Count; i++)
+                {
+                    double v = values[history.Index(i)];
+                    Point p = new Point(r.Left + offset + i * step, mid - v / range * (r.Height / 2));
+                    if (i == 0) g.BeginFigure(p, false, false);
+                    else g.LineTo(p, true, false);
+                }
+            }
+
+            geometry.Freeze();
+            dc.DrawGeometry(null, pen, geometry);
         }
     }
 }

@@ -53,6 +53,18 @@ namespace HeadTracking.App
                 return;
             }
 
+            if (args.Contains("--replay"))
+            {
+                Shutdown(Dev.Replay.Run(args, _log));
+                return;
+            }
+
+            if (args.Contains("--live-jitter"))
+            {
+                Shutdown(System.Threading.Tasks.Task.Run(() => Dev.LiveJitter.Run(args, _log)).GetAwaiter().GetResult());
+                return;
+            }
+
             if (args.Contains("--camera-test"))
             {
                 // Off the UI thread: FlashCap's open/start continue on the caller's context, and
@@ -71,6 +83,10 @@ namespace HeadTracking.App
             }
 
             _settings = AppSettings.Load(AppPaths.SettingsFile, _log);
+            if (_settings.Migrate(_log))
+            {
+                _settings.Save(AppPaths.SettingsFile, _log);
+            }
             _engine = new TrackingEngine(_settings, _log);
             _engine.Start();
 
@@ -90,6 +106,8 @@ namespace HeadTracking.App
         private void TakeSnapshots(MainWindow window, string directory)
         {
             Directory.CreateDirectory(directory);
+            // Tall enough that each page renders whole, not just what fits on screen.
+            window.Height = 1450;
             int page = 0;
             DispatcherTimer timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2.5) };
             timer.Tick += (s, e) =>

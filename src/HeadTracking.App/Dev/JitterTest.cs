@@ -119,7 +119,7 @@ namespace HeadTracking.App.Dev
         private static string Shake(List<Sample> samples, double steadiness, double smoothing)
         {
             HeadTracker tracker = new HeadTracker(new QueuedLog());
-            TrackingSettings settings = new TrackingSettings { AutoCenterOnStart = false, Steadiness = steadiness, Smoothing = smoothing, RecoveryFade = 0 };
+            TrackingSettings settings = new TrackingSettings { AutoCenterOnStart = false, Steadiness = steadiness, Smoothing = smoothing, Stillness = 0, RecoveryFade = 0 };
             double cy = samples.Average(p => p.Pose.Yaw), cp = samples.Average(p => p.Pose.Pitch);
             List<double> yaws = new List<double>(), pitches = new List<double>();
             for (int i = 0; i < samples.Count; i++)

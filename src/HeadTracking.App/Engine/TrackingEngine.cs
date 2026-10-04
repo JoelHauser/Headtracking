@@ -21,6 +21,10 @@ namespace HeadTracking.App
         public double RelativeYaw, RelativePitch;
         public double OutputYaw, OutputPitch;
         public double RawYaw, RawPitch, RawZ;
+        /// <summary>The head angle after all filtering, before sensitivity: what the view follows.</summary>
+        public double SettledYaw, SettledPitch;
+        /// <summary>Measured tracker noise (head degrees, one sigma) and the stillness band in use.</summary>
+        public double Noise, Band;
         public double Sigma;
         public bool Centered;
         public double TicksPerSecond;
@@ -538,6 +542,10 @@ namespace HeadTracking.App
                 RawYaw = _tracker.RawYaw,
                 RawPitch = _tracker.RawPitch,
                 RawZ = _tracker.RawZ,
+                SettledYaw = _tracker.SettledYaw,
+                SettledPitch = _tracker.SettledPitch,
+                Noise = _tracker.NoiseEstimate,
+                Band = _tracker.StillnessBandInUse,
                 Sigma = _tracker.LastSigma,
                 Centered = _tracker.IsCentered,
                 TicksPerSecond = _tickRate,
@@ -597,7 +605,8 @@ namespace HeadTracking.App
                 : "in raid, " + game.GameFps.ToString("0") + " fps, " + (game.PauseReasons == 0 ? "applying" : "paused: " + PauseFader.Describe((PauseReason)game.PauseReasons));
 
             _log.Info("Status: " + _tracker.State + " " + tracking.ToString("0") + "% of the last " + span.ToString("0") + " s | " + source
-                      + " | output change " + shake + " | head yaw " + HeadTracker.Deg(_tracker.RelativeYaw) + " pitch " + HeadTracker.Deg(_tracker.RelativePitch)
+                      + " | noise " + _tracker.NoiseEstimate.ToString("0.00") + " deg, stillness band " + _tracker.StillnessBandInUse.ToString("0.00")
+                      + " deg | output change " + shake + " | head yaw " + HeadTracker.Deg(_tracker.RelativeYaw) + " pitch " + HeadTracker.Deg(_tracker.RelativePitch)
                       + " -> game yaw " + HeadTracker.Deg(_tracker.OutputYaw) + " pitch " + HeadTracker.Deg(_tracker.OutputPitch)
                       + " | game " + gameText + " | engine " + _tickRate.ToString("0") + " ticks/s, app CPU " + _cpuPercent.ToString("0") + "% of one core");
         }
