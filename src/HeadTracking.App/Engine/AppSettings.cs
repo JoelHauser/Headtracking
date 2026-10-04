@@ -37,7 +37,7 @@ namespace HeadTracking.App
         /// 4 since 0.4.0, 5 since 0.5.0. Files from before 0.4.0 have none (read as 0).
         /// <see cref="Migrate"/> moves older files to the newer defaults, step by step.
         /// </summary>
-        public const int CurrentVersion = 5;
+        public const int CurrentVersion = 6;
 
         [OnDeserializing]
         private void OnDeserializing(StreamingContext context)
@@ -115,25 +115,30 @@ namespace HeadTracking.App
             PitchSensitivity = Math.Round(DefaultPitchGain * s, 2);
         }
 
-        /// <summary>
-        /// The Feel slider's default. Replayed against webcam-sized noise (HeadTracking.exe --replay) it
-        /// moves 3x less than 0.3.0 at rest (1.8 vs 5.2 deg/s) with 40% less lag (63 vs 111 ms).
-        /// </summary>
+        /// <summary>The Feel slider's default (a quarter of the way to Smooth).</summary>
         public const double DefaultFeel = 0.25;
 
         /// <summary>
         /// Sets the four smoothing settings from <see cref="Feel"/>, 0 (most responsive) to 1
-        /// (smoothest). At 0.25: stillness 1.0, motion smoothing 35 ms, smoothing 0, steadiness 1.0.
+        /// (smoothest). At 0.25: steadiness 0.38, stillness 1.2, motion smoothing 35 ms, smoothing 0.
+        ///
+        /// 0.7.0: less steadiness, a wider stillness lock. Steadiness (OpenTrack's soft dead zone)
+        /// damps every movement and was the main source of lag; the stillness lock holds the head
+        /// still at rest without slowing real turns. Replayed against webcam-sized noise, at the
+        /// same glide (so the same smoothness between camera frames), the new mapping is better at
+        /// every Feel: at 0 it trails real movement by 35 ms instead of 42, is off by 2.04 deg
+        /// RMS instead of 2.08, and moves 1.31 deg/s at rest instead of 1.61; at 0.25, 56 ms
+        /// instead of 63, 2.79 instead of 3.17, 1.52 instead of 1.69.
         /// The 1-euro smoothing stays off on the responsive half: with the stillness lock on it only
-        /// added lag, and made the view at rest move more, not less (replay: 2.2 vs 1.6 deg/s).
+        /// added lag.
         /// </summary>
         public void ApplyFeel()
         {
             double f = Clamp(Feel, 0, 1);
-            Stillness = Math.Round(0.6 + 1.6 * f, 2);
+            Stillness = Math.Round(1.0 + 0.8 * f, 2);
             MotionSmoothingMs = Math.Round(20 + 60 * f);
             Smoothing = Math.Round(Math.Max(0, 0.8 * (f - 0.5)), 2);
-            Steadiness = Math.Round(0.8 + 0.8 * f, 2);
+            Steadiness = Math.Round(0.3 + 0.3 * f, 2);
         }
 
         /// <summary>
@@ -141,6 +146,8 @@ namespace HeadTracking.App
         /// 4 (0.4.0): 0.2.0/0.3.0 filter values shook; reset them to the tuned ones.
         /// 5 (0.5.0): the straight 2.5x/2.0x response moved too much; files still on those untouched
         /// defaults get the calmer curve. A response anyone has changed by hand is kept.
+        /// 6 (0.7.0): the Feel slider's new, more precise mapping, where steadiness and stillness
+        /// are still what the old slider set (not tuned by hand).
         /// </summary>
         public bool Migrate(ILogSink log)
         {
@@ -176,6 +183,24 @@ namespace HeadTracking.App
                 {
                     log.Log(LogLevel.Info, "Response kept as you set it (sensitivity " + YawSensitivity + "/" + PitchSensitivity + ", curve "
                                            + YawCurve + "/" + PitchCurve + "); the 0.5.0 defaults are 2.0/1.6, curve 1.5 (Response > Reset).");
+                }
+            }
+
+            if (SettingsVersion < 6)
+            {
+                double f = Clamp(Feel, 0, 1);
+                bool fromSlider = Same(Steadiness, Math.Round(0.8 + 0.8 * f, 2)) && Same(Stillness, Math.Round(0.6 + 1.6 * f, 2));
+                if (fromSlider)
+                {
+                    double oldSteadiness = Steadiness, oldStillness = Stillness;
+                    ApplyFeel();
+                    log.Log(LogLevel.Info, "Feel " + f.ToString("0.00") + " moved to the 0.7.0 mapping: steadiness " + oldSteadiness + " -> " + Steadiness
+                                           + ", stillness " + oldStillness + " -> " + Stillness + " (less lag, steadier at rest).");
+                }
+                else
+                {
+                    log.Log(LogLevel.Info, "Steadiness and stillness kept as you tuned them (" + Steadiness + ", " + Stillness
+                                           + "); moving the Feel slider applies the 0.7.0 mapping.");
                 }
             }
 

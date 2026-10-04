@@ -82,6 +82,25 @@ namespace HeadTracking.App.Dev
                 // With and without the creep: DLSS/TAA blur a view that moves at all, however little.
                 (1.0, 0, -1, 4.0, 35),
                 (1.0, 0, -1, 0.0, 35),
+                // Feel 0 (the most responsive end): steadiness 0.8, stillness 0.6, glide 20 ms; and variants.
+                (0.8, 0, -0.6, 0, 20),
+                (0.8, 0, -0.6, 0, 0),
+                (0.0, 0, -0.6, 0, 20),
+                (0.8, 0, 0, 0, 20),
+                (0.0, 0, 0, 0, 20),
+                (0.0, 0, 0, 0, 0),
+                // The Feel slider, 0.6.0 mapping against 0.7.0 (less steadiness, a wider stillness lock),
+                // at Feel 0, 0.25, 0.5, 0.75 and 1: same glide, so the same smoothness between frames.
+                (0.8, 0, -0.6, 0, 20),
+                (0.3, 0, -1.0, 0, 20),
+                (1.0, 0, -1.0, 0, 35),
+                (0.38, 0, -1.2, 0, 35),
+                (1.2, 0, -1.4, 0, 50),
+                (0.45, 0, -1.4, 0, 50),
+                (1.4, 0.2, -1.8, 0, 65),
+                (0.52, 0.2, -1.6, 0, 65),
+                (1.6, 0.4, -2.2, 0, 80),
+                (0.6, 0.4, -1.8, 0, 80),
             };
             foreach (double band in new[] { 0.5, 0.7, 1.0 })
             foreach (double creep in new[] { 0.0, 2.0, 4.0 })
@@ -94,7 +113,7 @@ namespace HeadTracking.App.Dev
             foreach (var g in grid)
             {
                 Score(samples, g.steady, g.smooth, g.band, g.creep, g.follow, truth, out double shake, out double rest, out double lag, out double error, out double still);
-                Write(g.steady.ToString("0.0").PadLeft(6) + g.smooth.ToString("0.00").PadLeft(7) + (g.band < 0 ? "auto" : g.band.ToString("0.0")).PadLeft(6) + g.creep.ToString("0").PadLeft(6)
+                Write(g.steady.ToString("0.0").PadLeft(6) + g.smooth.ToString("0.00").PadLeft(7) + (g.band < 0 ? "a" + (-g.band).ToString("0.0") : g.band.ToString("0.0")).PadLeft(6) + g.creep.ToString("0").PadLeft(6)
                       + g.follow.ToString("0").PadLeft(7) + " | " + shake.ToString("0.000").PadLeft(6) + "  " + rest.ToString("0.00").PadLeft(6) + " deg/s "
                       + (lag * 1000).ToString("0").PadLeft(5) + "ms" + (truth ? " " + error.ToString("0.00").PadLeft(6) : "")
                       + (still * 100).ToString("0").PadLeft(5) + "%");
@@ -109,7 +128,7 @@ namespace HeadTracking.App.Dev
             HeadTracker tracker = new HeadTracker(new QueuedLog());
             TrackingSettings s = new TrackingSettings
             {
-                AutoCenterOnStart = false, Steadiness = steadiness, Smoothing = smoothing, StillnessBand = Math.Max(0, band), Stillness = band != 0 ? 1 : 0, StillnessCreep = creep,
+                AutoCenterOnStart = false, Steadiness = steadiness, Smoothing = smoothing, StillnessBand = Math.Max(0, band), Stillness = band < 0 ? -band : band > 0 ? 1 : 0, StillnessCreep = creep,
                 YawDeadZone = 0, PitchDeadZone = 0, RecoveryFade = 0, MaxYaw = 90, MaxPitch = 90,
             };
 

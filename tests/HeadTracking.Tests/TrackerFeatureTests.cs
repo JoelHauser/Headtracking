@@ -15,12 +15,15 @@ public class TrackerFeatureTests
     }
 
     [Fact]
-    public void AWebcamsAbsoluteAnglesAreCentredOnTheFirstGoodPose()
+    public void AWebcamsAbsoluteAnglesAreCentredOnTheFirstSteadySecond()
     {
         // The camera sits on top of the monitor, so "looking at the screen" reads as pitch -12.
         var rig = new Rig(Sharp());
-        rig.Run(0.2, () => rig.SendWebcam(4, -12, 55, true));
+        rig.Run(0.5, () => rig.SendWebcam(4, -12, 55, true));
+        Assert.False(rig.Tracker.IsCentered);
+        Assert.True(rig.Tracker.OutputYaw == 0 && rig.Tracker.OutputPitch == 0);
 
+        rig.Run(0.7, () => rig.SendWebcam(4, -12, 55, true));
         Assert.True(rig.Tracker.IsCentered);
         Assert.Equal(4, rig.Tracker.CenterYaw, 6);
         Assert.Equal(-12, rig.Tracker.CenterPitch, 6);
@@ -35,7 +38,7 @@ public class TrackerFeatureTests
     public void AutoCentreOnlyHappensOnceNotOnEveryRecovery()
     {
         var rig = new Rig(Sharp());
-        rig.Run(0.2, () => rig.SendWebcam(0, 0, 50, true));
+        rig.Run(1.2, () => rig.SendWebcam(0, 0, 50, true));
         rig.Run(2.0, () => rig.SendWebcam(0, 0, 50, false));
         rig.Run(0.2, () => rig.SendWebcam(10, 0, 50, true));
 
@@ -98,14 +101,14 @@ public class TrackerFeatureTests
     public void ResetForgetsTheCentreForANewSource()
     {
         var rig = new Rig(Sharp());
-        rig.Run(0.2, () => rig.SendWebcam(30, 0, 60, true));
+        rig.Run(1.2, () => rig.SendWebcam(30, 0, 60, true));
         Assert.Equal(30, rig.Tracker.CenterYaw, 6);
 
         rig.Tracker.Reset();
         Assert.False(rig.Tracker.IsCentered);
         Assert.Equal(TrackState.NoData, rig.Tracker.State);
 
-        rig.Run(0.2, () => rig.SendWebcam(-5, 0, 60, true));
+        rig.Run(1.2, () => rig.SendWebcam(-5, 0, 60, true));
         Assert.Equal(-5, rig.Tracker.CenterYaw, 6);
     }
 }

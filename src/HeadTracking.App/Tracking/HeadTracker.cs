@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using HeadTracking.Shared;
 
 namespace HeadTracking.Tracking
@@ -163,6 +165,25 @@ namespace HeadTracking.Tracking
         private bool _recenterRequested;
         private LossKind _loggedIdleLoss = LossKind.None;
 
+        // Centring: the last ~1.5 s of raw poses, so a centre is the median of many frames rather
+        // than one frame's jitter (0.3-0.6 deg per frame on a webcam).
+        private struct RawSample
+        {
+            public double T, Yaw, Pitch, Z;
+        }
+
+        private readonly RawSample[] _recent = new RawSample[64];
+        private int _recentCount, _recentNext;
+        private bool _centerByUser, _autoRecenterPending;
+        private double _autoRecenterUntil, _liveSince = double.NaN;
+
+        /// <summary>A recentre averages this much of the newest tracking.</summary>
+        public const double RecenterWindow = 0.5;
+        /// <summary>An automatic centre waits for the head to be this steady for a second.</summary>
+        public const double SteadySeconds = 1.0, SteadySpread = 4.0;
+        /// <summary>...but no longer than this; then it takes the last second as it is.</summary>
+        public const double SteadyGiveUpSeconds = 5.0;
+
         public TrackState State { get; private set; } = TrackState.NoData;
         public LossKind Loss { get; private set; } = LossKind.NoPackets;
 
@@ -240,10 +261,31 @@ namespace HeadTracking.Tracking
             _recenterRequested = true;
         }
 
+        /// <summary>
+        /// A raid is starting: if the centre was only ever set automatically (when the app started,
+        /// perhaps while looking at another screen), centre again on the first steady second in the
+        /// next 10 s. A centre the user set (recenter key or button) is never replaced.
+        /// </summary>
+        public void RequestAutoRecenter(double now)
+        {
+            if (!_centerByUser)
+            {
+                _autoRecenterPending = true;
+                _autoRecenterUntil = now + 10;
+            }
+        }
+
+        /// <summary>True when the user set the centre (recenter key or button) rather than the app.</summary>
+        public bool CenterSetByUser => _centerByUser;
+
         /// <summary>Start over: no centre, no history. For a change of source.</summary>
         public void Reset()
         {
             _centered = false;
+            _centerByUser = false;
+            _autoRecenterPending = false;
+            _recentCount = _recentNext = 0;
+            _liveSince = double.NaN;
             _centerYaw = _centerPitch = _centerZ = 0;
             Unprime();
             OutputYaw = OutputPitch = 0;
@@ -266,9 +308,40 @@ namespace HeadTracking.Tracking
             Loss = loss;
             bool live = loss == LossKind.None;
 
-            if (live && !_centered && s.AutoCenterOnStart)
+            if (live)
             {
-                SetCenter(snapshot.Pose, "Centred automatically on the first good pose");
+                if (double.IsNaN(_liveSince))
+                {
+                    _liveSince = now;
+                }
+
+                if (snapshot.LastChangeTime != _lastRemembered)
+                {
+                    _lastRemembered = snapshot.LastChangeTime;
+                    Remember(snapshot.Pose, snapshot.LastChangeTime);
+                }
+            }
+            else
+            {
+                _liveSince = double.NaN;
+            }
+
+            if (live && s.AutoCenterOnStart && (!_centered || _autoRecenterPending))
+            {
+                AutoCenter(now, s);
+            }
+
+            if (_autoRecenterPending && now > _autoRecenterUntil)
+            {
+                _autoRecenterPending = false;
+            }
+
+            // An automatic centre waits for a steady second; until then nothing goes to the game,
+            // rather than angles measured from no centre at all. A recenter still works meanwhile.
+            bool tracking = live;
+            if (live && s.AutoCenterOnStart && !_centered)
+            {
+                live = false;
             }
 
             if (live)
@@ -292,7 +365,7 @@ namespace HeadTracking.Tracking
             if (_recenterRequested)
             {
                 _recenterRequested = false;
-                Recenter(live, snapshot, now, s);
+                Recenter(tracking, snapshot, now, s);
             }
 
             Step(live, loss, snapshot, now, s);
@@ -464,6 +537,101 @@ namespace HeadTracking.Tracking
             return degrees < 0 ? -output : output;
         }
 
+        private double _lastRemembered = double.NaN;
+
+        private void Remember(in Pose pose, double t)
+        {
+            _recent[_recentNext] = new RawSample { T = t, Yaw = pose.Yaw, Pitch = pose.Pitch, Z = pose.Z };
+            _recentNext = (_recentNext + 1) % _recent.Length;
+            if (_recentCount < _recent.Length)
+            {
+                _recentCount++;
+            }
+        }
+
+        /// <summary>
+        /// The median pose over the newest <paramref name="window"/> seconds, if there are enough
+        /// frames and the head stayed within <paramref name="maxSpread"/> degrees. Yaw is taken
+        /// relative to the newest frame, so a head near +/-180 does not average to 0.
+        /// </summary>
+        private bool TryRecentPose(double now, double window, double maxSpread, out Pose pose, out int count)
+        {
+            pose = default;
+            count = 0;
+            if (_recentCount == 0)
+            {
+                return false;
+            }
+
+            RawSample newest = _recent[(_recentNext - 1 + _recent.Length) % _recent.Length];
+            double oldest = newest.T;
+            var yaws = new List<double>();
+            var pitches = new List<double>();
+            var zs = new List<double>();
+            for (int i = 0; i < _recentCount; i++)
+            {
+                RawSample r = _recent[(_recentNext - 1 - i + 2 * _recent.Length) % _recent.Length];
+                if (newest.T - r.T > window + 1e-9)
+                {
+                    break;
+                }
+
+                yaws.Add(Wrap180(r.Yaw - newest.Yaw));
+                pitches.Add(r.Pitch);
+                zs.Add(r.Z);
+                oldest = r.T;
+            }
+
+            // Enough frames, spread over most of the window (not a burst), and current.
+            count = yaws.Count;
+            if (count < Math.Max(3, (int)(window * 12)) || newest.T - oldest < 0.8 * window || newest.T < now - 0.25)
+            {
+                return false;
+            }
+
+            if (yaws.Max() - yaws.Min() > maxSpread || pitches.Max() - pitches.Min() > maxSpread)
+            {
+                return false;
+            }
+
+            pose = new Pose(0, 0, Median(zs), Wrap180(newest.Yaw + Median(yaws)), Median(pitches), 0);
+            return true;
+        }
+
+        private static double Median(List<double> values)
+        {
+            values.Sort();
+            int n = values.Count;
+            return n % 2 == 1 ? values[n / 2] : 0.5 * (values[n / 2 - 1] + values[n / 2]);
+        }
+
+        /// <summary>
+        /// The automatic centre: on the first second the head holds steady (looking at the screen,
+        /// not glancing around), as the median of that second. If the head never settles for 5 s,
+        /// the last second is taken as it is.
+        /// </summary>
+        private void AutoCenter(double now, TrackingSettings s)
+        {
+            bool steady = TryRecentPose(now, SteadySeconds, SteadySpread, out Pose pose, out int n);
+            bool giveUp = !steady && !_centered && now - _liveSince >= SteadyGiveUpSeconds
+                          && TryRecentPose(now, SteadySeconds, 360, out pose, out n);
+            if (!steady && !giveUp)
+            {
+                return;
+            }
+
+            bool again = _centered;
+            _autoRecenterPending = false;
+            SetCenter(pose, (again ? "Centred again automatically at the start of the raid" : "Centred automatically")
+                            + " on " + (steady ? "a steady second (median of " + n + " frames)" : "the last second (the head never settled for 5 s)"));
+            if (again)
+            {
+                // The view glides to the new centre, as after a recenter.
+                Unprime();
+                StartFade(now);
+            }
+        }
+
         private void SetCenter(in Pose pose, string why)
         {
             double oldYaw = _centerYaw, oldPitch = _centerPitch;
@@ -483,7 +651,17 @@ namespace HeadTracking.Tracking
                 return;
             }
 
-            SetCenter(snapshot.Pose, "Recentred");
+            Pose centre = snapshot.Pose;
+            int used = 0;
+            if (TryRecentPose(now, RecenterWindow, 6.0, out Pose median, out int n))
+            {
+                centre = median;
+                used = n;
+            }
+
+            _centerByUser = true;
+            _autoRecenterPending = false;
+            SetCenter(centre, used > 1 ? "Recentred on the median of the last " + used + " frames" : "Recentred");
 
             // Re-run this pose against the new centre, then glide there.
             Unprime();

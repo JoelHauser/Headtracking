@@ -399,7 +399,9 @@
                                             <TextBlock Text="Live: the tracker's jitter on your face right now, and the stillness band built from it." Style="{StaticResource Hint}" />
                                         </StackPanel>
                                     </Grid>
-                                    <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.AutoCenterOnStart}" Content="Centre automatically when tracking starts" Margin="0,8,0,0" />
+                                    <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.AutoCenterOnStart}" Content="Centre automatically" Margin="0,8,0,0" />
+                                    <TextBlock Style="{StaticResource Hint}" Margin="52,0,0,0" TextWrapping="Wrap"
+                                               Text="On the first steady second after tracking starts (the median of 30 frames), and again on the first steady second of each raid until you recenter yourself. Recenter (button or key) also takes the median of the last half second, not a single frame." />
                                 </StackPanel>
                             </Border>
                             <Button Content="Reset this page to defaults" HorizontalAlignment="Left" Command="{Binding ResetResponseCommand}" />

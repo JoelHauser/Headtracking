@@ -14,7 +14,14 @@ It comes in two parts:
 - **A BepInEx plugin**, which applies the result to the freelook camera only when it is safe to
   (not in menus, not while aiming down sights) and reports back what the game is doing.
 
-> **Status: 0.6.0: privacy.** The webcam now runs only while it is needed, the app window is hidden
+> **Status: 0.7.0: precision.** The view follows your head more exactly. Recentering takes the
+> median of half a second of frames instead of one jittery frame. The automatic centre waits for
+> your head to settle, and is taken again when a raid starts, so a glance at another screen at
+> startup no longer skews the whole session. The Feel slider leans on the stillness lock instead
+> of the lag-prone steadiness filter: at the most responsive setting the view trails real movement
+> by 35 ms instead of 42 and is steadier at rest; at the default, 56 ms instead of 63.
+>
+> **0.6.0: privacy.** The webcam now runs only while it is needed, the app window is hidden
 > from screen capture and streams, ONNX Runtime's telemetry is off, and logs leave out your Windows
 > user name (see [Privacy](#privacy)). 0.5.0, the first version that felt good in raid: 0.4.0 made the view smooth and still at rest, but in raid it was nauseating:
 > every small head movement (talking, shifting in the seat, the shoulder that moves with a mouse
@@ -48,6 +55,9 @@ It comes in two parts:
   runs at its full 30 fps; webcams halve their frame rate in dim light unless told not to.
 - **One Feel slider** from *Snappy* to *Very smooth* sets all the smoothing at once. Every
   underlying setting is still there to fine-tune.
+- **An exact centre.** Recentering (F7 or the button) takes the median of the last half second of
+  frames, not one jittery frame. The automatic centre waits for a steady second, and is taken
+  again at the start of each raid until you recenter yourself.
 - **Smooth in game.** The view glides between camera frames at your frame rate instead of stepping
   30 times a second.
 - **Private.** The camera picture never leaves memory. The camera is only on while it's needed,
@@ -141,8 +151,9 @@ thin grey line is your head before filtering and the thick gold line is what the
 - **The view lags behind your head or feels floaty:** move **Feel** to the left. The gold line should
   follow the grey one's turns closely. Far right adds the most lag; that end is for noisy cameras.
 
-The Feel default (a quarter of the way along, *Balanced*) is the setting that measured best: still
-at rest, about 60 ms behind a turn. The Response page has every setting behind both sliders, with
+The Feel default (a quarter of the way along, *Balanced*) keeps the view still at rest and about
+56 ms behind a turn; all the way left (*Snappy*), about 35 ms. These are replay measurements with
+webcam-sized noise. For the most exact view, press **F7** once you sit as you play, in raid. The Response page has every setting behind both sliders, with
 a graph of the response curve per axis and the jitter and stillness band in use right now.
 
 ### The pages

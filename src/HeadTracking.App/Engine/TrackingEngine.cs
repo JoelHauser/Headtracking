@@ -304,6 +304,7 @@ namespace HeadTracking.App
         private void Tick(double now)
         {
             EnsureLink();
+            NoticeRaidStart(now);
             UpdateCameraPolicy(now);
             EnsureSource(now);
 
@@ -594,6 +595,27 @@ namespace HeadTracking.App
                     _log.Warn("Stopping " + source.Name + ": " + e.Message);
                 }
             });
+        }
+
+        private bool _wasInRaidForCentre;
+
+        /// <summary>
+        /// A raid starting is when the player looks at the game: an automatic centre (taken when the
+        /// app started, maybe while looking at another screen) is taken again there. One the player
+        /// set with the recenter key or button is kept.
+        /// </summary>
+        private void NoticeRaidStart(double now)
+        {
+            StatusMessage status = default;
+            double time = double.NegativeInfinity;
+            bool inRaid = _link != null && _link.TryGetStatus(out status, out time) && now - time < GameTimeoutSeconds && status.InRaid;
+            if (inRaid && !_wasInRaidForCentre && _settings.AutoCenterOnStart && !_tracker.CenterSetByUser)
+            {
+                _log.Info("Raid started: the centre will be taken again on the first steady second (it was set automatically, not by you).");
+                _tracker.RequestAutoRecenter(now);
+            }
+
+            _wasInRaidForCentre = inRaid;
         }
 
         private void UpdateCameraPolicy(double now)

@@ -9,7 +9,7 @@ namespace HeadTracking.App
     public static class AppInfo
     {
         /// <summary>Must match the csproj's Version.</summary>
-        public const string Version = "0.6.0";
+        public const string Version = "0.7.0";
         public const string Name = "Head Tracking";
     }
 
