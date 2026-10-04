@@ -12,16 +12,75 @@ namespace HeadTracking.App.UI
         [DllImport("dwmapi.dll")]
         private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
 
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool SetWindowDisplayAffinity(IntPtr hwnd, uint affinity);
+
+        private const uint WdaNone = 0, WdaMonitor = 1, WdaExcludeFromCapture = 0x11;
+        private readonly MainViewModel _viewModel;
+        private string _captureState;
+
         public MainWindow(MainViewModel viewModel)
         {
             InitializeComponent();
             DataContext = viewModel;
             Title = "Head Tracking " + AppInfo.Version;
-            SourceInitialized += (s, e) => UseDarkTitleBar();
+            _viewModel = viewModel;
+            SourceInitialized += (s, e) =>
+            {
+                UseDarkTitleBar();
+                ApplyCaptureProtection();
+            };
+            viewModel.Settings.PropertyChanged += (s, e) =>
+            {
+                if (e.PropertyName == nameof(AppSettings.HideFromCapture))
+                {
+                    ApplyCaptureProtection();
+                }
+            };
             viewModel.OwnerHandle = () => new WindowInteropHelper(this).Handle;
             StateChanged += (s, e) => viewModel.Minimized = WindowState == WindowState.Minimized;
             Activated += (s, e) => viewModel.WindowActive = true;
             Deactivated += (s, e) => viewModel.WindowActive = false;
+        }
+
+        /// <summary>
+        /// Leaves this window out of every screen capture (OBS, Discord or Teams screen share, the
+        /// Snipping Tool, PrintScreen) so the camera preview cannot end up on a stream. You still see
+        /// it normally. Windows 10 2004 and later remove it from the capture; older Windows show it
+        /// black there instead.
+        /// </summary>
+        private void ApplyCaptureProtection()
+        {
+            IntPtr hwnd = new WindowInteropHelper(this).Handle;
+            if (hwnd == IntPtr.Zero)
+            {
+                return;
+            }
+
+            string state;
+            if (!_viewModel.Settings.HideFromCapture)
+            {
+                SetWindowDisplayAffinity(hwnd, WdaNone);
+                state = "Screen capture of this window allowed (Hide from capture is off).";
+            }
+            else if (SetWindowDisplayAffinity(hwnd, WdaExcludeFromCapture))
+            {
+                state = "This window is hidden from screen capture and streams.";
+            }
+            else if (SetWindowDisplayAffinity(hwnd, WdaMonitor))
+            {
+                state = "This window shows black in screen captures (this Windows cannot hide it entirely).";
+            }
+            else
+            {
+                state = "Could not protect this window from screen capture (error " + Marshal.GetLastWin32Error() + ").";
+            }
+
+            if (state != _captureState)
+            {
+                _captureState = state;
+                _viewModel.Note(state);
+            }
         }
 
         /// <summary>A dark title bar to match (Windows 10 2004 and later; harmless elsewhere).</summary>

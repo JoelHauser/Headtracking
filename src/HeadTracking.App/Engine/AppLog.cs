@@ -63,9 +63,36 @@ namespace HeadTracking.App
             }
         }
 
+        private static readonly System.Text.RegularExpressions.Regex UserProfile = ProfilePattern();
+
+        /// <summary>
+        /// Paths under the Windows user folder (SPT installed in C:\Users\name\...) would put the
+        /// account name into every log someone shares for help; they read %USERPROFILE% instead.
+        /// </summary>
+        internal static string Redact(string message)
+        {
+            return UserProfile == null || string.IsNullOrEmpty(message) ? message : UserProfile.Replace(message, "%USERPROFILE%");
+        }
+
+        private static System.Text.RegularExpressions.Regex ProfilePattern()
+        {
+            try
+            {
+                string profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                return string.IsNullOrEmpty(profile) || profile.Length < 4
+                    ? null
+                    : new System.Text.RegularExpressions.Regex(System.Text.RegularExpressions.Regex.Escape(profile.TrimEnd('\\')),
+                                                               System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
         public void Log(LogLevel level, string message)
         {
-            LogLine line = new LogLine { Time = DateTime.Now, Level = level, Message = message };
+            LogLine line = new LogLine { Time = DateTime.Now, Level = level, Message = Redact(message) };
             lock (_lock)
             {
                 _recent.AddLast(line);

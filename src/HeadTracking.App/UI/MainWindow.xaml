@@ -92,6 +92,19 @@
                                 </StackPanel>
                             </Border>
 
+                            <Border Style="{StaticResource Card}" Visibility="{Binding CameraOffVisibility}">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE72E;" Foreground="{StaticResource SubTextBrush}" FontSize="18" Margin="0,0,12,0" VerticalAlignment="Top" />
+                                    <TextBlock Grid.Column="1" Text="{Binding CameraOffText}" TextWrapping="Wrap" MaxWidth="700" VerticalAlignment="Center" />
+                                    <Button Grid.Column="2" Content="Turn camera on" Command="{Binding WakeCameraCommand}" Margin="14,0,0,0" VerticalAlignment="Center" />
+                                </Grid>
+                            </Border>
+
                             <Border Style="{StaticResource Card}" Background="#33E3A44A" BorderBrush="{StaticResource WarnBrush}" Visibility="{Binding FrameRateWarningVisibility}">
                                 <StackPanel Orientation="Horizontal">
                                     <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE7BA;" Foreground="{StaticResource WarnBrush}" FontSize="18" Margin="0,0,12,0" VerticalAlignment="Top" />
@@ -280,9 +293,9 @@
                                         <ComboBox ItemsSource="{Binding Models}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding Settings.Model}" Margin="0,0,0,0" />
                                         <TextBlock Text="OpenTrack's open-source neural head-pose models. Each frame costs a few milliseconds of CPU." Style="{StaticResource Hint}" Margin="0,6,0,12" />
                                         <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.MirrorAverage}" Content="Check every frame twice (mirrored)" />
-                                        <TextBlock Text="Also reads each frame mirrored and averages the two answers: about a third less jitter, for about double the network time (still only a few milliseconds)." Style="{StaticResource Hint}" Margin="52,0,0,12" />
+                                        <TextBlock Text="Also reads each frame mirrored and averages the two answers: about 10% less jitter (measured on a C920), for twice the CPU (about 7 ms a frame instead of 3.5)." Style="{StaticResource Hint}" Margin="52,0,0,12" />
                                         <ui:SettingSlider Label="CPU threads" Minimum="1" Maximum="4" Step="1" Format="0" Value="{Binding Settings.InferenceThreads}"
-                                                          Hint="Threads the networks may use. 1 is plenty (about 2 ms a frame) and leaves the most for the game." />
+                                                          Hint="Threads the networks may use. 2, the default, costs the same CPU as 1 and tracks each frame in half the time; more only add overhead." />
                                         <ui:SettingSlider Label="Camera field of view" Minimum="40" Maximum="110" Step="1" Format="0" Unit="&#x00B0; diagonal" Value="{Binding Settings.CameraFov}"
                                                           Hint="From the camera's spec sheet (Logitech C920: 78, C270: 55, laptop cameras about 70). Only fine-tunes distance and off-centre angles." />
                                         <ui:SettingSlider Label="Face detection confidence" Minimum="0.2" Maximum="0.9" Step="0.05" Format="0.00" Value="{Binding Settings.DetectionThreshold}"
@@ -300,6 +313,23 @@
                                     <TextBlock Style="{StaticResource Hint}" FontSize="13" LineHeight="21">
                                         In OpenTrack: set Output to "UDP over network", click its hammer icon and enter IP 127.0.0.1 and the port above (4242 is OpenTrack's default), then press Start.<LineBreak />
                                         Set the dead zones of OpenTrack's filter to 0: this app smooths and dead-zones on its own, and OpenTrack's dead zone makes a still head look like a lost one.
+                                    </TextBlock>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource Card}">
+                                <StackPanel>
+                                    <TextBlock Text="Privacy" Style="{StaticResource CardTitle}" />
+                                    <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.CameraOnlyWhenNeeded}" Content="Turn the camera off when it isn't needed" />
+                                    <TextBlock Style="{StaticResource Hint}" Margin="0,4,0,12" TextWrapping="Wrap"
+                                               Text="On while SPT is running or this window is in front. Off (its light goes out) 30 seconds after neither, after 3 minutes with nobody in view outside a raid, and whenever head tracking is switched off." />
+                                    <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.HideFromCapture}" Content="Hide this window from screen capture and streams" />
+                                    <TextBlock Style="{StaticResource Hint}" Margin="0,4,0,12" TextWrapping="Wrap"
+                                               Text="OBS, Discord screen share and screenshots leave this window out, so the camera preview cannot be streamed. You still see it. Turn it off to take a screenshot of the app." />
+                                    <TextBlock Style="{StaticResource Hint}" FontSize="13" LineHeight="21" TextWrapping="Wrap">
+                                        Camera pictures are analysed in memory and dropped; none is ever saved, sent or shown anywhere but this window.<LineBreak />
+                                        All that leaves this app is two angles about 30 times a second, to the game on this PC (127.0.0.1), never to the network, the SPT server or other players.<LineBreak />
+                                        ONNX Runtime's usage telemetry is switched off, and the logs keep your Windows user name out.
                                     </TextBlock>
                                 </StackPanel>
                             </Border>

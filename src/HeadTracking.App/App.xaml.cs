@@ -40,6 +40,10 @@ namespace HeadTracking.App
             string[] args = e.Args;
             NativeLibraries.Prepare();
             _log.Info(NativeLibraries.Error == null ? "ONNX Runtime loaded from " + NativeLibraries.LoadedFrom + "." : NativeLibraries.Error);
+            if (NativeLibraries.Error == null)
+            {
+                _log.Info(NativeLibraries.DisableTelemetry());
+            }
 
             if (args.Contains("--test-image"))
             {
@@ -95,6 +99,8 @@ namespace HeadTracking.App
                 _settings.Save(AppPaths.SettingsFile, _log);
             }
             _engine = new TrackingEngine(_settings, _log);
+            // The page renders may never contain a camera picture: in snapshot mode the camera stays shut.
+            _engine.CameraAllowed = Array.IndexOf(args, "--snapshot") < 0;
             _engine.Start();
 
             _viewModel = new MainViewModel(_settings, _engine, _log);

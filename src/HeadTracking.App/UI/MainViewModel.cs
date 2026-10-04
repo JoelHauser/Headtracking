@@ -82,6 +82,11 @@ namespace HeadTracking.App.UI
             RecenterCommand = new RelayCommand(() => _engine.Recenter());
             RefreshCamerasCommand = new RelayCommand(() => LoadCameras(true));
             RestartSourceCommand = new RelayCommand(() => _engine.RestartSource());
+            WakeCameraCommand = new RelayCommand(() =>
+            {
+                Settings.Enabled = true;
+                _engine.WakeCamera();
+            });
             ResetResponseCommand = new RelayCommand(() => Settings.ResetResponse());
             CameraSettingsCommand = new RelayCommand(OpenCameraSettings);
             ResetInGameCommand = new RelayCommand(() => Settings.ResetInGame());
@@ -338,6 +343,15 @@ namespace HeadTracking.App.UI
         public string GameStatus { get; private set; } = "";
         public Brush GameBrush { get; private set; } = Brushes.Gray;
         public string GameDetail { get; private set; } = "";
+        public ICommand WakeCameraCommand { get; }
+
+        /// <summary>Shown on the Overview while the camera is off on purpose.</summary>
+        public string CameraOffText { get; private set; }
+        public Visibility CameraOffVisibility => string.IsNullOrEmpty(CameraOffText) ? Visibility.Collapsed : Visibility.Visible;
+
+        /// <summary>For the window: a line in the log.</summary>
+        internal void Note(string message) => _log.Info(message);
+
         public string SourceError { get; private set; }
         public Visibility SourceErrorVisibility => string.IsNullOrEmpty(SourceError) ? Visibility.Collapsed : Visibility.Visible;
 
@@ -420,7 +434,15 @@ namespace HeadTracking.App.UI
             bool tracking = s.State == TrackState.Tracking;
             Tracking = tracking;
             SourceError = s.Source?.Error;
-            if (!string.IsNullOrEmpty(SourceError) && !tracking)
+            CameraOffText = s.CameraOffReason == null ? null
+                : "The camera is off: " + s.CameraOffReason + ". It turns on by itself when a raid starts, when you bring this window to the front, "
+                  + "or with the in-game keys; nothing is watched while it is off.";
+            if (s.CameraOffReason != null)
+            {
+                TrackerStatus = "Camera off";
+                TrackerBrush = Brush("SubTextBrush");
+            }
+            else if (!string.IsNullOrEmpty(SourceError) && !tracking)
             {
                 TrackerStatus = "Not tracking";
                 TrackerBrush = Brush("BadBrush");
@@ -441,8 +463,9 @@ namespace HeadTracking.App.UI
                 TrackerBrush = Brush("WarnBrush");
             }
 
-            TrackerDetail = s.SourceName + (s.Source != null && s.Source.Rate > 0 ? " · " + s.Source.Rate.ToString("0") + " poses/s" : "")
-                            + (s.Source != null && s.Source.InferenceMs > 0 ? " · " + s.Source.InferenceMs.ToString("0.0") + " ms per frame" : "");
+            TrackerDetail = s.CameraOffReason != null ? s.SourceName + " · light off"
+                : s.SourceName + (s.Source != null && s.Source.Rate > 0 ? " · " + s.Source.Rate.ToString("0") + " poses/s" : "")
+                  + (s.Source != null && s.Source.InferenceMs > 0 ? " · " + s.Source.InferenceMs.ToString("0.0") + " ms per frame" : "");
 
             // Game status
             if (!s.GameConnected)
@@ -534,6 +557,8 @@ namespace HeadTracking.App.UI
             Raise(nameof(GameDetail));
             Raise(nameof(SourceError));
             Raise(nameof(SourceErrorVisibility));
+            Raise(nameof(CameraOffText));
+            Raise(nameof(CameraOffVisibility));
             Raise(nameof(HeadX));
             Raise(nameof(HeadY));
             Raise(nameof(GhostX));

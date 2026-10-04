@@ -33,6 +33,9 @@ namespace HeadTracking.App
         public bool GameConnected;
         public StatusMessage GameStatus;
         public string LinkError;
+
+        /// <summary>Why the webcam is off on purpose (privacy), or null while it may run.</summary>
+        public string CameraOffReason;
     }
 
     /// <summary>
@@ -116,6 +119,14 @@ namespace HeadTracking.App
         /// <summary>Set by the window: true while it is the active window and not minimized.</summary>
         public volatile bool AppActive = true;
 
+        /// <summary>False in --snapshot: the camera is never opened.</summary>
+        public volatile bool CameraAllowed = true;
+
+        // The camera only when needed (privacy): see CameraPolicy.
+        private CameraPolicy _camera = new CameraPolicy(0);
+        private bool _cameraWanted = true;
+        private string _cameraOffReason;
+
         // While the game shows one of these, nothing in raid needs the head: eco. Aiming is not
         // here: an aiming pause lasts a moment and must hand back at full quality.
         private const PauseReason IdleReasons = PauseReason.ScreenOpen | PauseReason.CursorVisible | PauseReason.DialogOrCutscene
@@ -149,6 +160,13 @@ namespace HeadTracking.App
         }
 
         /// <summary>Close and reopen the source (the Restart button, or a changed camera list).</summary>
+        /// <summary>The "Turn camera on" button: ends a sleep and keeps the camera on a while.</summary>
+        public void WakeCamera()
+        {
+            _work.Enqueue(() => _camera.Wake(Clock.Now(), "turned on from the app"));
+            _wake.Set();
+        }
+
         public void RestartSource()
         {
             _work.Enqueue(() =>
@@ -248,6 +266,7 @@ namespace HeadTracking.App
             _lastTickRateTime = now;
             _nextStatusLog = now + StatusLogSeconds;
             _cpuMeter = new CpuMeter(now);
+            _camera = new CameraPolicy(now);
             while (!_stopping)
             {
                 handles[0] = _wake;
@@ -270,6 +289,7 @@ namespace HeadTracking.App
         private void Tick(double now)
         {
             EnsureLink();
+            UpdateCameraPolicy(now);
             EnsureSource(now);
 
             if (_source is WebcamSource webcam)
@@ -387,11 +407,17 @@ namespace HeadTracking.App
                         break;
                     case LinkCommand.Recenter:
                         _log.Info("Recenter key pressed in game.");
+                        _camera.Wake(Clock.Now(), "recenter key pressed in game");
                         _tracker.RequestRecenter();
                         break;
                     case LinkCommand.Toggle:
                         _settings.Enabled = !_settings.Enabled;
                         _log.Info("Toggle key pressed in game: head tracking " + (_settings.Enabled ? "ON" : "OFF") + ".");
+                        if (_settings.Enabled)
+                        {
+                            _camera.Wake(Clock.Now(), "toggle key pressed in game");
+                        }
+
                         EnabledToggledFromGame?.Invoke(_settings.Enabled);
                         break;
                 }
@@ -421,6 +447,16 @@ namespace HeadTracking.App
                 }
 
                 FinishStart(now);
+            }
+
+            if (_settings.Source == SourceKind.Webcam && !_cameraWanted)
+            {
+                if (_source != null)
+                {
+                    StopSource();
+                }
+
+                return;
             }
 
             if (_source != null)
@@ -479,7 +515,8 @@ namespace HeadTracking.App
                 return;
             }
 
-            bool stillWanted = _sourceIdentity == _settings.SourceIdentity || (source is WebcamSource started && SameCamera(_settings, started));
+            bool stillWanted = (_sourceIdentity == _settings.SourceIdentity || (source is WebcamSource started && SameCamera(_settings, started)))
+                               && !(source is WebcamSource && !_cameraWanted);
             if (!stillWanted)
             {
                 // The settings changed while it was opening: close it and open the new one.
@@ -490,6 +527,7 @@ namespace HeadTracking.App
 
             _source = source;
             _lastSourceError = null;
+            _camera.Opened(now);
             _status = source.GetStatus();
             if (source is WebcamSource webcam)
             {
@@ -543,6 +581,62 @@ namespace HeadTracking.App
             });
         }
 
+        private void UpdateCameraPolicy(double now)
+        {
+            if (_settings.Source != SourceKind.Webcam)
+            {
+                SetCameraWanted(true, null);
+                return;
+            }
+
+            StatusMessage status = default;
+            double time = double.NegativeInfinity;
+            bool connected = _link != null && _link.TryGetStatus(out status, out time) && now - time < GameTimeoutSeconds;
+            _camera.Update(now, new CameraInputs
+            {
+                Allowed = CameraAllowed,
+                Enabled = _settings.Enabled,
+                OnlyWhenNeeded = _settings.CameraOnlyWhenNeeded,
+                GameConnected = connected,
+                InRaid = connected && status.InRaid,
+                AppActive = AppActive,
+                Running = _source != null,
+                FaceInView = _tracker.State == TrackState.Tracking,
+            });
+
+            string woke = _camera.TakeWakeReason();
+            if (woke != null && _camera.Wanted)
+            {
+                _log.Info("Camera waking: " + woke + ".");
+            }
+
+            SetCameraWanted(_camera.Wanted, _camera.OffReason);
+        }
+
+        private void SetCameraWanted(bool wanted, string reason)
+        {
+            if (wanted == _cameraWanted && reason == _cameraOffReason)
+            {
+                return;
+            }
+
+            _cameraWanted = wanted;
+            _cameraOffReason = reason;
+            if (wanted)
+            {
+                _log.Info("Camera on.");
+                _nextSourceAttempt = 0;
+            }
+            else
+            {
+                _log.Info("Camera off: " + reason + ".");
+                if (_source is WebcamSource)
+                {
+                    StopSource();
+                }
+            }
+        }
+
         /// <summary>In raid, nothing open, game in front, tracking switched on: the head matters now.</summary>
         private bool GameWantsTracking(double now)
         {
@@ -590,6 +684,7 @@ namespace HeadTracking.App
                 GameConnected = gameConnected,
                 GameStatus = status,
                 LinkError = _link?.BindError,
+                CameraOffReason = _settings.Source == SourceKind.Webcam ? _cameraOffReason : null,
             };
 
             lock (_snapshotLock)
@@ -624,7 +719,9 @@ namespace HeadTracking.App
             }
             else
             {
-                source = _startTask != null ? "source starting" : "no source" + (src.Error != null ? " (" + src.Error + ")" : "");
+                source = _startTask != null ? "source starting"
+                    : _cameraOffReason != null ? "camera off: " + _cameraOffReason
+                    : "no source" + (src.Error != null ? " (" + src.Error + ")" : "");
             }
 
             double tracking = _statusTicks > 0 ? 100.0 * _statusTrackingTicks / _statusTicks : 0;

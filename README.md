@@ -14,7 +14,9 @@ It comes in two parts:
 - **A BepInEx plugin**, which applies the result to the freelook camera only when it is safe to
   (not in menus, not while aiming down sights) and reports back what the game is doing.
 
-> **Status: 0.5.0.** 0.4.0 made the view smooth and still at rest, but in raid it was nauseating:
+> **Status: 0.6.0: privacy.** The webcam now runs only while it is needed, the app window is hidden
+> from screen capture and streams, ONNX Runtime's telemetry is off, and logs leave out your Windows
+> user name (see [Privacy](#privacy)). 0.5.0, the first version that felt good in raid: 0.4.0 made the view smooth and still at rest, but in raid it was nauseating:
 > every small head movement (talking, shifting in the seat, the shoulder that moves with a mouse
 > flick) swung the view two and a half times as far. 0.5.0 makes the response gentle near centre: a
 > 3° head shift now moves the view under 1° (it was almost 4°), while a deliberate turn still reaches
@@ -48,6 +50,9 @@ It comes in two parts:
   underlying setting is still there to fine-tune.
 - **Smooth in game.** The view glides between camera frames at your frame rate instead of stepping
   30 times a second.
+- **Private.** The camera picture never leaves memory. The camera is only on while it's needed,
+  the window is hidden from screen capture and streams, and nothing goes anywhere but the game on
+  this PC (see [Privacy](#privacy)).
 - **Light on the PC.** The tracker uses about a fifth of one CPU core while you play, and about a
   twentieth when you are not: with no raid running, a screen open in raid, or the game alt-tabbed
   (and this window in the background), it runs at half rate without the mirrored check, and is
@@ -145,7 +150,7 @@ a graph of the response curve per axis and the jitter and stillness band in use 
 | Page | What it controls |
 |---|---|
 | Overview | Live head and in-game pads (the head pad's faint dot is the raw reading), the Live motion graph, the Sensitivity and Feel sliders, Tracking quality with a tip, a camera preview, a warning if the camera runs slow, quick start. |
-| Tracking source | Webcam or OpenTrack. Which camera and picture format; keep the full frame rate in low light; the camera's own settings dialog; model (Fast, Balanced, Accurate); check every frame twice (mirrored); CPU threads; camera field of view; face-detection confidence; how long an unsure detector is trusted. |
+| Tracking source | Webcam or OpenTrack. Which camera and picture format; keep the full frame rate in low light; the camera's own settings dialog; model (Fast, Balanced, Accurate); check every frame twice (mirrored); CPU threads; camera field of view; face-detection confidence; how long an unsure detector is trusted. Privacy: the camera only when needed, the window hidden from screen capture. |
 | Response | Per axis: sensitivity, dead zone, furthest turn, curve and invert, each with a live graph. Smoothness: Feel, plus stillness, motion smoothing, steadiness, smoothing and fast-movement response, with the live jitter readout. Auto-centre. |
 | In game | When to pause (aiming, cursor showing, window unfocused) and how fast to fade; what happens when tracking drops out (hold, return, glide back); the in-game keys. |
 | Diagnostics | Plugin found or not, rates and timings, and the live log. |
@@ -158,10 +163,49 @@ smoothing, and OpenTrack's dead zone makes a still head look like a lost one.
 
 ## Privacy
 
-The webcam is opened by HeadTracking.exe on your PC and each frame is analysed in memory, then
-discarded. Video is never recorded, saved or sent anywhere. The only thing that leaves the app is a
-few numbers per frame (the head angles), sent to the game on this same PC (127.0.0.1). Nothing about
-your head goes to the SPT server or to other players.
+Everything below was checked in the code, not just intended.
+
+**The camera picture.**
+- Only HeadTracking.exe opens the webcam. Each frame is analysed in memory and then overwritten by
+  the next one.
+- No picture is ever recorded, saved or sent anywhere. No part of the app writes an image file from
+  the camera. Its only image output is a developer mode that renders its own pages, and that mode
+  never opens the camera.
+- The preview exists only in the app's window. By default that window is **hidden from screen
+  capture**: OBS, Discord or Teams screen share, the Snipping Tool and PrintScreen all leave it out,
+  so the preview can't end up on a stream. You still see it normally. A switch on the Tracking source
+  page turns this off when you want a screenshot.
+
+**When the camera is on.** Only when it's needed. It runs while SPT is running or the app's window
+is in front. It turns off, and its light goes out:
+- 30 seconds after neither is true;
+- at once when head tracking is switched off (the header switch or F8);
+- after 3 minutes with nobody in view outside a raid. In a raid it never sleeps: a lost face there
+  is you looking away.
+
+It wakes when a raid starts, when you bring the window to the front, with F7/F8 in game, or with
+*Turn camera on* on the Overview. Turn off *Turn the camera off when it isn't needed* to keep it on
+while the app is open.
+
+**What leaves the app.**
+- Two head angles, about 30 times a second, go to the game on this PC (UDP to 127.0.0.1). The game
+  sends its state (in raid, paused, frame rate) back the same way.
+- Every socket listens on 127.0.0.1 only, so nothing on the network can connect. OpenTrack input is
+  accepted from this PC only.
+- No internet connection, no update check, no analytics.
+- ONNX Runtime, the library that runs the face models, has Microsoft usage telemetry built into its
+  Windows version. The app switches it off at startup, before any model is loaded. No camera data
+  is in it either way.
+
+**In the game.** The plugin changes only your own camera. It never writes `Player.HeadRotation`,
+the value SPT and FIKA send, so neither the server nor other players ever receive anything about
+your head.
+
+**What stays on your PC.**
+- `HeadTrackingApp\settings.json` holds your settings and the camera's name.
+- `HeadTrackingApp\logs\` holds this run's log and the previous one. They record head angles, frame
+  rates, picture brightness, and when a face was found or lost, so they show when you sat at the PC.
+  Your Windows user name is written as `%USERPROFILE%`. Read a log before sharing it.
 
 ## Multiplayer (FIKA)
 
@@ -178,6 +222,8 @@ head tracking.
 | The view shakes or drifts while you hold still | The Tracking quality card on the Overview: its tip names the likeliest cause. Then move Feel to the right. The log's `Status:` line every 10 s gives the camera's real frame rate, the measured jitter and the stillness band. |
 | "Looking for your face" never changes | Under about 40/255 brightness the room is too dark; the quality card says so, and Diagnostics shows the value. Face the camera; try a lower face-detection confidence. |
 | The camera runs under 25 fps | Turn on "Keep the full frame rate" (Tracking source), add light, or shorten the exposure in Camera settings. |
+| The header says **Camera off** | On purpose, for privacy: no game running and the window in the background, nobody in view for 3 minutes, or tracking switched off. It turns on by itself when a raid starts or you bring the window to the front; *Turn camera on* on the Overview does it at once. |
+| A screenshot or stream shows the app as black or missing | That is *Hide this window from screen capture* (Tracking source page). Turn it off for the screenshot. |
 | "Not tracking" with an error | The message says what to do: camera in use by another program (Discord, OBS, Teams, a browser), no camera found, or Windows' camera privacy setting. |
 | "Game not connected" in raid | The plugin must be in `BepInEx\plugins\HeadTracking`. The game's log, `BepInEx\LogOutput.log`, has lines starting `[Info :Head Tracking]`; look for `Listening for HeadTracking.exe` and `HeadTracking.exe connected`. |
 | The view moves the wrong way | Invert that axis on the Response page. The game's log has a `Direction check` line the first time you turn and tilt. |

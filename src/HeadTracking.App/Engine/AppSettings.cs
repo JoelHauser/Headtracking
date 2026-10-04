@@ -53,6 +53,8 @@ namespace HeadTracking.App
         {
             _settingsVersion = CurrentVersion;
             _enabled = true;
+            _cameraOnlyWhenNeeded = true;
+            _hideFromCapture = true;
             _mirrorAverage = true;
             _source = SourceKind.Webcam;
             _cameraName = "";
@@ -205,6 +207,15 @@ namespace HeadTracking.App
         // ---- general --------------------------------------------------------------------
         private bool _enabled;
         [DataMember] public bool Enabled { get => _enabled; set => Set(ref _enabled, value); }
+
+        // ---- privacy -------------------------------------------------------------------------
+        private bool _cameraOnlyWhenNeeded, _hideFromCapture;
+
+        /// <summary>Webcam on only while SPT runs or this window is in front; see TrackingEngine.</summary>
+        [DataMember] public bool CameraOnlyWhenNeeded { get => _cameraOnlyWhenNeeded; set => Set(ref _cameraOnlyWhenNeeded, value); }
+
+        /// <summary>The window is left out of screen capture (OBS, Discord, screenshots) so the preview cannot be streamed.</summary>
+        [DataMember] public bool HideFromCapture { get => _hideFromCapture; set => Set(ref _hideFromCapture, value); }
 
         private SourceKind _source;
         [DataMember] public SourceKind Source { get => _source; set => Set(ref _source, value); }

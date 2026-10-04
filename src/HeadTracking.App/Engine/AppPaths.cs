@@ -2,13 +2,14 @@ using System;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using Microsoft.ML.OnnxRuntime;
 
 namespace HeadTracking.App
 {
     public static class AppInfo
     {
         /// <summary>Must match the csproj's Version.</summary>
-        public const string Version = "0.5.0";
+        public const string Version = "0.6.0";
         public const string Name = "Head Tracking";
     }
 
@@ -63,6 +64,25 @@ namespace HeadTracking.App
         private static extern IntPtr LoadLibrary(string path);
 
         public static string LoadedFrom { get; private set; }
+
+        /// <summary>
+        /// The Windows build of ONNX Runtime reports usage events (process info, model session
+        /// creation) through a Microsoft trace provider, which Windows can upload with its own
+        /// diagnostic data. Nothing of the camera is in them, but nothing should leave at all:
+        /// switched off once, before any model is loaded.
+        /// </summary>
+        public static string DisableTelemetry()
+        {
+            try
+            {
+                OrtEnv.Instance().DisableTelemetryEvents();
+                return "ONNX Runtime telemetry switched off.";
+            }
+            catch (Exception e)
+            {
+                return "Could not switch off ONNX Runtime telemetry: " + e.Message;
+            }
+        }
 
         public static string Error { get; private set; }
 
