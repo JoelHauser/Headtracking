@@ -14,12 +14,12 @@ It comes in two parts:
 - **A BepInEx plugin**, which applies the result to the freelook camera only when it is safe to
   (not in menus, not while aiming down sights) and reports back what the game is doing.
 
-> **Status: 0.4.0.** Built for one complaint about 0.2.0 and 0.3.0: the view kept moving while the
-> head held still. Most of that came from the tracker's own frame-to-frame noise, which 0.4.0 halves
-> at the source and then locks out. On a still head the view now stays still, and it still follows
-> real turns, now with less lag. Replayed against webcam-sized noise, the view moves 3x less at rest
-> than in 0.3.0 (1.8 vs 5.2 °/s), with 40% less lag (63 vs 111 ms). Not yet played in raid in this
-> form.
+> **Status: 0.5.0.** 0.4.0 made the view smooth and still at rest, but in raid it was nauseating:
+> every small head movement (talking, shifting in the seat, the shoulder that moves with a mouse
+> flick) swung the view two and a half times as far. 0.5.0 makes the response gentle near centre: a
+> 3° head shift now moves the view under 1° (it was almost 4°), while a deliberate turn still reaches
+> the full look. A new **Sensitivity** slider on the Overview turns it down further. Not yet played
+> in raid in this form.
 
 ## Features
 
@@ -29,6 +29,9 @@ It comes in two parts:
   phone apps, other cameras).
 - **Freelook with your head.** Yaw and pitch, with sensitivity, dead zone, maximum angle, response
   curve and invert per axis.
+- **Calm near centre.** Small head movements give about the same small movement in game, as in
+  real life; only bigger, deliberate turns are amplified, up to the full 40° look at about 22° of
+  head turn. One **Sensitivity** slider on the Overview scales both axes.
 - **A still head gives a still view.** A *stillness lock* holds the view exactly still until your
   head has moved further than the tracker's own noise. The lock measures that noise while it runs,
   so a noisier camera or a darker room is held still too. Real turns get through straight away,
@@ -41,8 +44,8 @@ It comes in two parts:
   underlying setting is still there to fine-tune.
 - **Smooth in game.** The view glides between camera frames at your frame rate instead of stepping
   30 times a second.
-- **You can see what it does.** The Overview shows a *Live motion* graph: your raw head angle
-  against what the game shows, over the last 8 seconds. Next to it, a *Tracking quality* card rates
+- **You can see what it does.** The Overview shows a *Live motion* graph: your head angle before
+  filtering against what the game shows, over the last 8 seconds. Next to it, a *Tracking quality* card rates
   the tracker's measured jitter and names the one change most likely to help, such as more light or
   the frame-rate switch.
 - **Plays nicely with the game.** Respects EFT's own freelook limits (and mods that change them).
@@ -80,10 +83,17 @@ HeadTrackingApp\                      <- the app's libraries, the face models, i
 BepInEx\plugins\HeadTracking.Plugin.dll
 ```
 
-**Upgrading from 0.2.0 or 0.3.0:** close the game and the app first, then unzip over the old
-version. On first start, 0.4.0 resets the smoothing settings to the new defaults, switches the model
-to Balanced and turns on the mirrored check, because the old values were the ones that shook. All
-your other settings (sensitivity, dead zones, keys, camera) are kept.
+**Upgrading:** close the game and the app first, then unzip over the old version. On first start
+the app moves settings that were the cause of a problem to the new defaults, and logs what it
+changed:
+
+- From 0.2.0 or 0.3.0: the smoothing settings, the model (to Balanced) and the mirrored check (on),
+  because the old values were the ones that shook.
+- From 0.4.0 or earlier: the response (sensitivity and curve) moves to the calmer 0.5.0 curve, but
+  only if you never changed it. A response you set yourself is kept; *Reset this page to defaults*
+  on the Response page gives you the new one.
+
+Everything else (dead zones, keys, camera, Feel, pause options) is kept.
 
 ## Use
 
@@ -98,25 +108,28 @@ your other settings (sensitivity, dead zones, keys, camera) are kept.
 
 Leave the app running while you play; closing it eases the view back to centre.
 
-### Tuning the feel
+### Tuning
 
-Use the **Feel** slider on the Overview, and watch the *Live motion* graph while you do. The thin
-grey line is your raw head reading and the thick gold line is what the game shows.
+Two sliders on the Overview do most of it. Watch the *Live motion* graph while you move them: the
+thin grey line is your head before filtering and the thick gold line is what the game shows.
 
-- **The view twitches while you hold still:** move Feel to the right. The gold line should go flat
-  while the grey one wobbles.
-- **The view lags behind your head or feels floaty:** move Feel to the left. The gold line should
-  follow the grey one's turns closely.
+- **The view moves when you don't mean it to, or it makes you queasy:** move **Sensitivity** left.
+  Small head movements then stay small, and the full look needs a bigger head turn. The label shows
+  how far: "Full 40° look at 22° of head turn" is the default.
+- **The view twitches while you hold still:** move **Feel** to the right. The gold line should go
+  flat while the grey one wobbles.
+- **The view lags behind your head or feels floaty:** move **Feel** to the left. The gold line should
+  follow the grey one's turns closely. Far right adds the most lag; that end is for noisy cameras.
 
-The default (a quarter of the way along, *Balanced*) is the setting that measured best: still at
-rest, about 60 ms behind a turn. The Response page has the four settings behind the slider for
-fine-tuning, and shows the jitter and stillness band in use right now.
+The Feel default (a quarter of the way along, *Balanced*) is the setting that measured best: still
+at rest, about 60 ms behind a turn. The Response page has every setting behind both sliders, with
+a graph of the response curve per axis and the jitter and stillness band in use right now.
 
 ### The pages
 
 | Page | What it controls |
 |---|---|
-| Overview | Live head and in-game pads (the head pad's faint dot is the raw reading), the Live motion graph, the Feel slider, Tracking quality with a tip, a camera preview, a warning if the camera runs slow, quick start. |
+| Overview | Live head and in-game pads (the head pad's faint dot is the raw reading), the Live motion graph, the Sensitivity and Feel sliders, Tracking quality with a tip, a camera preview, a warning if the camera runs slow, quick start. |
 | Tracking source | Webcam or OpenTrack. Which camera and picture format; keep the full frame rate in low light; the camera's own settings dialog; model (Fast, Balanced, Accurate); check every frame twice (mirrored); CPU threads; camera field of view; face-detection confidence; how long an unsure detector is trusted. |
 | Response | Per axis: sensitivity, dead zone, furthest turn, curve and invert, each with a live graph. Smoothness: Feel, plus stillness, motion smoothing, steadiness, smoothing and fast-movement response, with the live jitter readout. Auto-centre. |
 | In game | When to pause (aiming, cursor showing, window unfocused) and how fast to fade; what happens when tracking drops out (hold, return, glide back); the in-game keys. |
@@ -145,6 +158,7 @@ head tracking.
 
 | Symptom | Look at |
 |---|---|
+| The view moves too much, or the game makes you feel sick | Move Sensitivity (Overview) left. If the view also trails your head, move Feel left too: the smooth end adds lag. |
 | The view shakes or drifts while you hold still | The Tracking quality card on the Overview: its tip names the likeliest cause. Then move Feel to the right. The log's `Status:` line every 10 s gives the camera's real frame rate, the measured jitter and the stillness band. |
 | "Looking for your face" never changes | Under about 40/255 brightness the room is too dark; the quality card says so, and Diagnostics shows the value. Face the camera; try a lower face-detection confidence. |
 | The camera runs under 25 fps | Turn on "Keep the full frame rate" (Tracking source), add light, or shorten the exposure in Camera settings. |
@@ -183,6 +197,9 @@ The app's log is `HeadTrackingApp\logs\HeadTracking.log` (Diagnostics > Open log
      percentile of recent frame-to-frame steps), so it fits the camera and the light. While held,
      the view creeps toward the head (time constant 4 s), so small adjustments are not lost.
   3. Optionally a 1€ filter, on the smoother half of the Feel slider.
+  4. The response: a dead zone at centre, then a power curve (1.5 by default, keeping its end
+     point) that leaves small movements near 1:1 and amplifies only bigger turns, up to the
+     furthest turn.
 - **In the game**, the plugin is a Harmony prefix on `Player.VisualPass`. After the game's own
   freelook has run and before the camera is placed, it sets the camera's head rotation to
   *mouse freelook + head offset*, clamped and shaped exactly as `Player.Look` shapes mouse freelook.

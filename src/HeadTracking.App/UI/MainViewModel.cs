@@ -347,6 +347,18 @@ namespace HeadTracking.App.UI
             }
         }
 
+        /// <summary>What the sensitivity slider means in head terms: how far to turn for the full look.</summary>
+        public string SensitivityText
+        {
+            get
+            {
+                double s = Settings.YawSensitivity;
+                if (s <= 0) return "";
+                double head = Settings.YawDeadZone + Settings.MaxYaw / s;
+                return "Full " + Settings.MaxYaw.ToString("0") + "\u00B0 look at " + head.ToString("0") + "\u00B0 of head turn";
+            }
+        }
+
         public string QualityText { get; private set; } = "";
         public Brush QualityBrush { get; private set; } = Brushes.Gray;
         public GridLength QualityFill { get; private set; } = new GridLength(0, GridUnitType.Star);
@@ -464,8 +476,11 @@ namespace HeadTracking.App.UI
 
             if (_selectedPage == OverviewPage)
             {
-                double rawYaw = -HeadTracker.YawSign * (Settings.InvertYaw ? -1 : 1) * Settings.YawSensitivity * s.RelativeYaw;
-                double rawPitch = -HeadTracker.PitchSign * (Settings.InvertPitch ? -1 : 1) * Settings.PitchSensitivity * s.RelativePitch;
+                // Unfiltered, but through the same response curve, so the gap between the lines is the filtering only.
+                double rawYaw = -HeadTracker.YawSign * (Settings.InvertYaw ? -1 : 1)
+                                * HeadTracker.Shape(s.RelativeYaw, Settings.YawDeadZone, Settings.YawSensitivity, Settings.MaxYaw, Settings.YawCurve);
+                double rawPitch = -HeadTracker.PitchSign * (Settings.InvertPitch ? -1 : 1)
+                                  * HeadTracker.Shape(s.RelativePitch, Settings.PitchDeadZone, Settings.PitchSensitivity, Settings.MaxPitch, Settings.PitchCurve);
                 History.Add(Clamp(rawYaw, 60), OutX, Clamp(rawPitch, 60), OutY);
                 HistoryRevision++;
                 Raise(nameof(HistoryRevision));
@@ -646,6 +661,18 @@ namespace HeadTracking.App.UI
                 // The one-slider control: sets stillness, motion smoothing, smoothing, steadiness.
                 Settings.ApplyFeel();
                 Raise(nameof(FeelText));
+            }
+
+            if (e.PropertyName == nameof(AppSettings.Sensitivity))
+            {
+                // The other one-slider control: scales yaw and pitch sensitivity together.
+                Settings.ApplySensitivity();
+            }
+
+            if (e.PropertyName == nameof(AppSettings.YawSensitivity) || e.PropertyName == nameof(AppSettings.MaxYaw)
+                || e.PropertyName == nameof(AppSettings.YawDeadZone))
+            {
+                Raise(nameof(SensitivityText));
             }
 
             _engine.Apply(Settings);

@@ -34,10 +34,10 @@ namespace HeadTracking.App
         }
 
         /// <summary>
-        /// 4 since 0.4.0. Files from before have none (read as 0); <see cref="Load"/> then moves the
-        /// filter settings to the 0.4.0 defaults, which were tuned on measured camera noise.
+        /// 4 since 0.4.0, 5 since 0.5.0. Files from before 0.4.0 have none (read as 0).
+        /// <see cref="Migrate"/> moves older files to the newer defaults, step by step.
         /// </summary>
-        public const int CurrentVersion = 4;
+        public const int CurrentVersion = 5;
 
         [OnDeserializing]
         private void OnDeserializing(StreamingContext context)
@@ -73,20 +73,40 @@ namespace HeadTracking.App
 
         public void ResetResponse()
         {
-            YawSensitivity = 2.5;
-            PitchSensitivity = 2.0;
+            Sensitivity = 1.0;
+            ApplySensitivity();
             YawDeadZone = 1.5;
             PitchDeadZone = 1.5;
             MaxYaw = 40;
             MaxPitch = 30;
-            YawCurve = 1.0;
-            PitchCurve = 1.0;
+            YawCurve = DefaultCurve;
+            PitchCurve = DefaultCurve;
             InvertYaw = false;
             InvertPitch = false;
             FastMoveResponse = 0.5;
             AutoCenterOnStart = true;
             Feel = DefaultFeel;
             ApplyFeel();
+        }
+
+        /// <summary>
+        /// 0.5.0 response defaults. 0.4.0's straight 2.5x/2.0x made every small, unmeant head movement
+        /// (talking, shifting in the seat, a mouse flick) swing the view, which made Joel feel sick.
+        /// With a curve of 1.5 a 3 degree head shift gives 0.8 degrees of view (was 3.8), 5 gives 2.9
+        /// (was 8.8), a deliberate 10 still gives 11, and the full 40 comes at 21.5 degrees of head
+        /// turn. Near centre that is about 1:1, as in real life; only bigger turns are amplified.
+        /// </summary>
+        public const double DefaultYawGain = 2.0, DefaultPitchGain = 1.6, DefaultCurve = 1.5;
+
+        /// <summary>
+        /// The overview's one-slider sensitivity: scales both axes from their defaults, 0.5x to 1.5x.
+        /// Like <see cref="Feel"/> it writes the per-axis settings, which stay the ones that count.
+        /// </summary>
+        public void ApplySensitivity()
+        {
+            double s = Clamp(Sensitivity, 0.5, 1.5);
+            YawSensitivity = Math.Round(DefaultYawGain * s, 2);
+            PitchSensitivity = Math.Round(DefaultPitchGain * s, 2);
         }
 
         /// <summary>
@@ -110,7 +130,12 @@ namespace HeadTracking.App
             Steadiness = Math.Round(0.8 + 0.8 * f, 2);
         }
 
-        /// <summary>0.4.0: older files carry 0.2.0/0.3.0 filter values, which shook; move them to the tuned defaults.</summary>
+        /// <summary>
+        /// Moves an older file to the current defaults where the old ones were the problem.
+        /// 4 (0.4.0): 0.2.0/0.3.0 filter values shook; reset them to the tuned ones.
+        /// 5 (0.5.0): the straight 2.5x/2.0x response moved too much; files still on those untouched
+        /// defaults get the calmer curve. A response anyone has changed by hand is kept.
+        /// </summary>
         public bool Migrate(ILogSink log)
         {
             if (SettingsVersion >= CurrentVersion)
@@ -118,16 +143,41 @@ namespace HeadTracking.App
                 return false;
             }
 
-            log.Log(LogLevel.Info, "Settings from an older version (" + SettingsVersion + "): smoothing settings reset to the 0.4.0 defaults "
-                                   + "(they were " + "smoothing " + Smoothing + ", steadiness " + Steadiness + ", motion smoothing " + MotionSmoothingMs
-                                   + " ms), model " + Model + " -> Balanced, mirror check on.");
-            Feel = DefaultFeel;
-            ApplyFeel();
-            Model = ModelQuality.Balanced;
-            MirrorAverage = true;
+            if (SettingsVersion < 4)
+            {
+                log.Log(LogLevel.Info, "Settings from an older version (" + SettingsVersion + "): smoothing settings reset to the 0.4.0 defaults "
+                                       + "(they were " + "smoothing " + Smoothing + ", steadiness " + Steadiness + ", motion smoothing " + MotionSmoothingMs
+                                       + " ms), model " + Model + " -> Balanced, mirror check on.");
+                Feel = DefaultFeel;
+                ApplyFeel();
+                Model = ModelQuality.Balanced;
+                MirrorAverage = true;
+            }
+
+            if (SettingsVersion < 5)
+            {
+                bool untouched = Same(YawSensitivity, 2.5) && Same(PitchSensitivity, 2.0) && Same(YawCurve, 1.0) && Same(PitchCurve, 1.0);
+                if (untouched)
+                {
+                    Sensitivity = 1.0;
+                    ApplySensitivity();
+                    YawCurve = DefaultCurve;
+                    PitchCurve = DefaultCurve;
+                    log.Log(LogLevel.Info, "Response moved to the 0.5.0 defaults: sensitivity 2.5/2.0 -> " + YawSensitivity + "/" + PitchSensitivity
+                                           + ", curve 1.0 -> " + DefaultCurve + " (small head movements move the view much less).");
+                }
+                else
+                {
+                    log.Log(LogLevel.Info, "Response kept as you set it (sensitivity " + YawSensitivity + "/" + PitchSensitivity + ", curve "
+                                           + YawCurve + "/" + PitchCurve + "); the 0.5.0 defaults are 2.0/1.6, curve 1.5 (Response > Reset).");
+                }
+            }
+
             SettingsVersion = CurrentVersion;
             return true;
         }
+
+        private static bool Same(double a, double b) => Math.Abs(a - b) < 1e-6;
 
         public void ResetInGame()
         {
@@ -195,8 +245,9 @@ namespace HeadTracking.App
         // ---- response -------------------------------------------------------------------------
         private double _yawSensitivity, _pitchSensitivity, _yawDeadZone, _pitchDeadZone, _maxYaw, _maxPitch, _yawCurve, _pitchCurve;
         private bool _invertYaw, _invertPitch, _autoCenterOnStart;
-        private double _smoothing, _fastMoveResponse, _steadiness, _motionSmoothingMs, _stillness, _feel;
+        private double _smoothing, _fastMoveResponse, _steadiness, _motionSmoothingMs, _stillness, _feel, _sensitivity;
 
+        [DataMember] public double Sensitivity { get => _sensitivity; set => Set(ref _sensitivity, Clamp(value, 0.5, 1.5)); }
         [DataMember] public double YawSensitivity { get => _yawSensitivity; set => Set(ref _yawSensitivity, Clamp(value, 0.1, 8)); }
         [DataMember] public double PitchSensitivity { get => _pitchSensitivity; set => Set(ref _pitchSensitivity, Clamp(value, 0.1, 8)); }
         [DataMember] public double YawDeadZone { get => _yawDeadZone; set => Set(ref _yawDeadZone, Clamp(value, 0, 15)); }

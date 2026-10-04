@@ -26,7 +26,7 @@
     <ApplicationIcon>Assets\HeadTracking.ico</ApplicationIcon>
 
     <!-- Must match AppInfo.Version. -->
-    <Version>0.4.0</Version>
+    <Version>0.5.0</Version>
     <Product>Head Tracking</Product>
     <Description>Webcam and OpenTrack head tracking for SPT</Description>
   </PropertyGroup>

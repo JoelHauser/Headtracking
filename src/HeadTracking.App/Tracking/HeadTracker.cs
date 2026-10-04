@@ -33,6 +33,9 @@ namespace HeadTracking.Tracking
     /// </summary>
     public sealed class TrackingSettings
     {
+        // The defaults here are the straight 0.4.0 response, kept as the baseline that tests and the
+        // dev tools (--replay, --jitter-test, --live-jitter) measure against. What ships is
+        // AppSettings' (0.5.0: gain 2.0/1.6, curve 1.5), copied in by the engine.
         public double YawGain = 2.5;
         public double PitchGain = 2.0;
 

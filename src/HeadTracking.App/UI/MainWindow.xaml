@@ -169,6 +169,15 @@
                                 </Grid.ColumnDefinitions>
                                 <Border Style="{StaticResource Card}">
                                     <StackPanel>
+                                        <TextBlock Text="Sensitivity" Style="{StaticResource CardTitle}" />
+                                        <Grid Margin="0,0,0,2">
+                                            <TextBlock Text="Less" Style="{StaticResource Hint}" />
+                                            <TextBlock Text="{Binding SensitivityText}" Foreground="{StaticResource AccentBrush}" FontWeight="SemiBold" HorizontalAlignment="Center" />
+                                            <TextBlock Text="More" Style="{StaticResource Hint}" HorizontalAlignment="Right" />
+                                        </Grid>
+                                        <Slider Minimum="0.5" Maximum="1.5" SmallChange="0.05" LargeChange="0.05" TickFrequency="0.05" IsSnapToTickEnabled="True" Value="{Binding Settings.Sensitivity}" />
+                                        <TextBlock Style="{StaticResource Hint}" Margin="0,6,0,16"
+                                                   Text="If the view moves when you don't mean it to, or the game makes you feel queasy, move this left. Small head movements stay small; turn further for the full look." />
                                         <TextBlock Text="Feel" Style="{StaticResource CardTitle}" />
                                         <Grid Margin="0,0,0,2">
                                             <TextBlock Text="Responsive" Style="{StaticResource Hint}" />
@@ -177,7 +186,7 @@
                                         </Grid>
                                         <Slider Minimum="0" Maximum="1" SmallChange="0.05" LargeChange="0.05" TickFrequency="0.05" IsSnapToTickEnabled="True" Value="{Binding Settings.Feel}" />
                                         <TextBlock Style="{StaticResource Hint}" Margin="0,8,0,0"
-                                                   Text="Left: the view follows your head sooner, and small movements get through. Right: the view holds dead still until you really turn, and glides more. The default was tuned on measured webcam noise; the Response page has each part on its own." />
+                                                   Text="Left: the view follows your head sooner. Right: it holds still until you really turn, and glides more, which also adds lag. The Response page has each part on its own." />
                                     </StackPanel>
                                 </Border>
                                 <Border Grid.Column="2" Style="{StaticResource Card}">
