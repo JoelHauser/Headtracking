@@ -78,8 +78,11 @@ namespace HeadTracking.Tracking
         /// <summary>
         /// Seconds over which a held view creeps to where the head really is, so the lock never
         /// leaves it off by the band. 0: no creep.
+        /// Off since 0.5.0: it chased the noisy reading every camera frame, so a held view still
+        /// moved by slivers, and DLSS/TAA kept the picture soft ("like motion blur"). Replay: the
+        /// view was exactly still in 20% of resting frames with it, 74% without, same lag.
         /// </summary>
-        public double StillnessCreep = 4.0;
+        public double StillnessCreep = 0;
 
         /// <summary>0 to 1. How much fast head movement cuts through the smoothing.</summary>
         public double FastMoveResponse = 0.5;

@@ -53,6 +53,13 @@ namespace HeadTracking.Game
         private static int _perfFrames;
         private static int _appliedFrames;
 
+        // Frames on which our offset moved the camera at all, against frames it held it exactly.
+        // DLSS/FSR/TAA only sharpen a view that stops, so "moved" while the head is still reads as
+        // blur. Under 0.0005 deg (about a fiftieth of a pixel) counts as still.
+        private const double MovedDegrees = 0.0005;
+        private static int _movedFrames;
+        private static double _prevYaw, _prevPitch;
+
         /// <summary><see cref="Clock.Now"/> of the last frame the hook ran for the local player.</summary>
         internal static double LastDriveTime { get; private set; } = double.NegativeInfinity;
 
@@ -80,10 +87,12 @@ namespace HeadTracking.Game
         }
 
         /// <summary>Hook cost since the last call, for the status line.</summary>
-        internal static void TakePerf(out int frames, out double averageMicros, out double maxMicros, out int appliedFrames)
+        internal static void TakePerf(out int frames, out double averageMicros, out double maxMicros, out int appliedFrames, out int movedFrames)
         {
             frames = _perfFrames;
             appliedFrames = _appliedFrames;
+            movedFrames = _movedFrames;
+            _movedFrames = 0;
             double toMicros = 1e6 / Stopwatch.Frequency;
             averageMicros = frames > 0 ? _perfTicks * toMicros / frames : 0;
             maxMicros = _perfMaxTicks * toMicros;
@@ -177,6 +186,13 @@ namespace HeadTracking.Game
             _pitchFollow.SettleOnZero(targetPitch);
             double yaw = _yawFollow.Value;
             double pitch = _pitchFollow.Value;
+            if (Math.Abs(yaw - _prevYaw) >= MovedDegrees || Math.Abs(pitch - _prevPitch) >= MovedDegrees)
+            {
+                _movedFrames++;
+            }
+
+            _prevYaw = yaw;
+            _prevPitch = pitch;
 
             ProceduralWeaponAnimation pwa = player.ProceduralWeaponAnimation;
             if (pwa == null)

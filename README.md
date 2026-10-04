@@ -18,8 +18,10 @@ It comes in two parts:
 > every small head movement (talking, shifting in the seat, the shoulder that moves with a mouse
 > flick) swung the view two and a half times as far. 0.5.0 makes the response gentle near centre: a
 > 3° head shift now moves the view under 1° (it was almost 4°), while a deliberate turn still reaches
-> the full look. A new **Sensitivity** slider on the Overview turns it down further. Not yet played
-> in raid in this form.
+> the full look. A new **Sensitivity** slider on the Overview turns it down further. It also fixes a
+> softness "like motion blur": 0.4.0 kept the camera inching by tiny amounts even with a still head,
+> and DLSS, FSR and TAA only sharpen a picture that stops. Now a held view does not move at all. Not
+> yet played in raid in this form.
 
 ## Features
 
@@ -34,8 +36,8 @@ It comes in two parts:
   head turn. One **Sensitivity** slider on the Overview scales both axes.
 - **A still head gives a still view.** A *stillness lock* holds the view exactly still until your
   head has moved further than the tracker's own noise. The lock measures that noise while it runs,
-  so a noisier camera or a darker room is held still too. Real turns get through straight away,
-  and tiny deliberate adjustments still arrive after a moment.
+  so a noisier camera or a darker room is held still too. Real turns get through straight away.
+  Held means exactly still, not nearly: DLSS, FSR and TAA blur a camera that keeps inching.
 - **Quieter tracking at the source.** The tracker crops your face from a steadier box, and checks
   every frame a second time, mirrored, then averages the two. With the Balanced model, now the
   default, this cut the frame-to-frame noise on a Logitech C920 from 1.05° to 0.45°. The camera also
@@ -159,6 +161,7 @@ head tracking.
 | Symptom | Look at |
 |---|---|
 | The view moves too much, or the game makes you feel sick | Move Sensitivity (Overview) left. If the view also trails your head, move Feel left too: the smooth end adds lag. |
+| The picture goes soft or smeared while head tracking is on | Make sure you are on 0.5.0 or later: before it, the camera never fully stopped and DLSS/FSR/TAA kept the picture soft. If it blurs only while you are actually turning, that is the upscaler's motion handling, the same as with the mouse: compare with DLSS off. The game's `LogOutput.log` status line says on how many frames the head moved the view. |
 | The view shakes or drifts while you hold still | The Tracking quality card on the Overview: its tip names the likeliest cause. Then move Feel to the right. The log's `Status:` line every 10 s gives the camera's real frame rate, the measured jitter and the stillness band. |
 | "Looking for your face" never changes | Under about 40/255 brightness the room is too dark; the quality card says so, and Diagnostics shows the value. Face the camera; try a lower face-detection confidence. |
 | The camera runs under 25 fps | Turn on "Keep the full frame rate" (Tracking source), add light, or shorten the exposure in Camera settings. |
@@ -195,7 +198,8 @@ The app's log is `HeadTrackingApp\logs\HeadTracking.log` (Diagnostics > Open log
   2. The stillness lock: the output stays put until the head leaves a band around it, then follows
      dragging the band, like gear backlash. The band is 1.5x the jitter measured live (a robust
      percentile of recent frame-to-frame steps), so it fits the camera and the light. While held,
-     the view creeps toward the head (time constant 4 s), so small adjustments are not lost.
+     the view does not move at all. (0.4.0 let it creep toward the head; that kept the camera moving
+     by slivers every frame, which temporal upscalers render as blur.)
   3. Optionally a 1€ filter, on the smoother half of the Feel slider.
   4. The response: a dead zone at centre, then a power curve (1.5 by default, keeping its end
      point) that leaves small movements near 1:1 and amplifies only bigger turns, up to the

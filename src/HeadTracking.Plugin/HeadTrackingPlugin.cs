@@ -307,9 +307,9 @@ namespace HeadTracking
                 return;
             }
 
-            CameraPatch.TakePerf(out int frames, out double avgMicros, out double maxMicros, out int applied);
+            CameraPatch.TakePerf(out int frames, out double avgMicros, out double maxMicros, out int applied, out int moved);
             string camera = CameraPatch.InRaid && now - CameraPatch.LastDriveTime < 0.5
-                ? "camera hook " + frames + " frames (" + applied + " with an offset), " + avgMicros.ToString("0.0") + " us avg, "
+                ? "camera hook " + frames + " frames (" + applied + " with an offset, head moved the view on " + moved + "), " + avgMicros.ToString("0.0") + " us avg, "
                   + maxMicros.ToString("0") + " us max; pause " + PauseFader.Describe(CameraPatch.Fader.Reasons)
                   + " (weight " + CameraPatch.Fader.Eased.ToString("0.00") + ")"
                 : "no local player (menus or loading)";

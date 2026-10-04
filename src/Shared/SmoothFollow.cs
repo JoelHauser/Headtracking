@@ -16,6 +16,14 @@ namespace HeadTracking.Shared
         public double Value;
         public double Velocity;
 
+        /// <summary>
+        /// Degrees. Closer than this to the target, and slower than this per frame, the follow lands
+        /// exactly on it. Without it the follow approaches forever, moving the camera by a sliver
+        /// every frame, and temporal upscalers (DLSS, FSR, TAA) only sharpen a view that stops: the
+        /// picture stayed soft, "like motion blur". 0.002 deg is under a tenth of a pixel.
+        /// </summary>
+        public const double LandWithin = 0.002;
+
         /// <param name="smoothTime">Seconds; roughly the time to reach the target. 0 snaps.</param>
         public double Step(double target, double smoothTime, double dt)
         {
@@ -34,8 +42,9 @@ namespace HeadTracking.Shared
             Velocity = (Velocity - omega * temp) * decay;
             double output = target + (change + temp) * decay;
 
-            // Never pass the target.
-            if ((target - Value > 0) == (output > target))
+            // Never pass the target, and land on it once the rest is too small to see.
+            if ((target - Value > 0) == (output > target)
+                || (Math.Abs(target - output) < LandWithin && Math.Abs(Velocity) * dt < LandWithin))
             {
                 output = target;
                 Velocity = 0;

@@ -67,10 +67,10 @@ namespace HeadTracking.App.Dev
             bool truth = samples[0].HasTruth;
             Write(Path.GetFileName(csv) + ": " + samples.Count + " samples over " + (samples.Last().T - samples.First().T).ToString("0.0") + " s"
                   + (truth ? ", with the true head motion" : "") + ". Sensitivity 2.5 yaw / 2.0 pitch, no centre dead zone.");
-            Write("steady smooth  band creep follow |  shake  rest-motion   lag" + (truth ? "  error" : ""));
+            Write("steady smooth  band creep follow |  shake  rest-motion   lag" + (truth ? "  error" : "") + "  still");
             if (truth)
             {
-                Score(samples, 0, 0, 0, 0, 0, true, out _, out double floor, out _, out _, truthAsView: true);
+                Score(samples, 0, 0, 0, 0, 0, true, out _, out double floor, out _, out _, out _, truthAsView: true);
                 Write("  the true head itself moves " + floor.ToString("0.00") + " deg/s (in game) during the rest windows: the floor.");
             }
 
@@ -79,7 +79,9 @@ namespace HeadTracking.App.Dev
                 (0, 0, 0, 0, 0),
                 (1.0, 0.5, 0, 0, 60),
                 // The shipped defaults (Feel 0.25): the band sized automatically from the measured noise.
+                // With and without the creep: DLSS/TAA blur a view that moves at all, however little.
                 (1.0, 0, -1, 4.0, 35),
+                (1.0, 0, -1, 0.0, 35),
             };
             foreach (double band in new[] { 0.5, 0.7, 1.0 })
             foreach (double creep in new[] { 0.0, 2.0, 4.0 })
@@ -91,17 +93,18 @@ namespace HeadTracking.App.Dev
 
             foreach (var g in grid)
             {
-                Score(samples, g.steady, g.smooth, g.band, g.creep, g.follow, truth, out double shake, out double rest, out double lag, out double error);
+                Score(samples, g.steady, g.smooth, g.band, g.creep, g.follow, truth, out double shake, out double rest, out double lag, out double error, out double still);
                 Write(g.steady.ToString("0.0").PadLeft(6) + g.smooth.ToString("0.00").PadLeft(7) + (g.band < 0 ? "auto" : g.band.ToString("0.0")).PadLeft(6) + g.creep.ToString("0").PadLeft(6)
                       + g.follow.ToString("0").PadLeft(7) + " | " + shake.ToString("0.000").PadLeft(6) + "  " + rest.ToString("0.00").PadLeft(6) + " deg/s "
-                      + (lag * 1000).ToString("0").PadLeft(5) + "ms" + (truth ? " " + error.ToString("0.00").PadLeft(6) : ""));
+                      + (lag * 1000).ToString("0").PadLeft(5) + "ms" + (truth ? " " + error.ToString("0.00").PadLeft(6) : "")
+                      + (still * 100).ToString("0").PadLeft(5) + "%");
             }
 
             return Finish(lines, outPath, 0);
         }
 
         private static void Score(List<Sample> samples, double steadiness, double smoothing, double band, double creep, double followMs, bool truth,
-                                  out double shake, out double rest, out double lag, out double error, bool truthAsView = false)
+                                  out double shake, out double rest, out double lag, out double error, out double still, bool truthAsView = false)
         {
             HeadTracker tracker = new HeadTracker(new QueuedLog());
             TrackingSettings s = new TrackingSettings
@@ -160,16 +163,22 @@ namespace HeadTracking.App.Dev
             shake = Math.Sqrt(sum / Math.Max(1, n));
 
             // Rest motion: how far the view travels per second while the head is (nearly) still.
+            // Still: the share of those frames where the camera did not move at all (under 0.0005
+            // deg, about a fiftieth of a pixel). Temporal upscalers only sharpen a view that stops.
             double path = 0;
-            int restFrames = 0;
+            int restFrames = 0, stillFrames = 0;
             for (int i = 1; i < view.Count; i++)
             {
                 if (resting[i] && resting[i - 1])
                 {
-                    path += Math.Abs(view[i] - view[i - 1]);
+                    double step = Math.Abs(view[i] - view[i - 1]);
+                    path += step;
                     restFrames++;
+                    if (step < 0.0005) stillFrames++;
                 }
             }
+
+            still = restFrames > 0 ? (double)stillFrames / restFrames : double.NaN;
 
             rest = restFrames > 0 ? path / (restFrames / RenderHz) : double.NaN;
 
