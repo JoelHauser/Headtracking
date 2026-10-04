@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -87,6 +88,14 @@ namespace HeadTracking.App.UI
                 Settings.Enabled = true;
                 _engine.WakeCamera();
             });
+            TurnCameraOffCommand = new RelayCommand(() => _engine.TurnCameraOff());
+            DeleteLogsCommand = new RelayCommand(() =>
+            {
+                int deleted = _log.DeleteFiles();
+                _logFilesNote = deleted == 0 ? "There were no log files to delete." : "Deleted " + deleted + " log file" + (deleted == 1 ? "" : "s") + ".";
+                _log.Info("Log files deleted from the Privacy page (" + deleted + ").");
+                UpdateLogFilesText();
+            });
             ResetResponseCommand = new RelayCommand(() => Settings.ResetResponse());
             CameraSettingsCommand = new RelayCommand(OpenCameraSettings);
             ResetInGameCommand = new RelayCommand(() => Settings.ResetInGame());
@@ -161,7 +170,8 @@ namespace HeadTracking.App.UI
         }
 
         private const int OverviewPage = 0;
-        private const int DiagnosticsPage = 4;
+        private const int PrivacyPage = 4;
+        private const int DiagnosticsPage = 5;
 
         private bool _windowActive = true;
 
@@ -344,6 +354,41 @@ namespace HeadTracking.App.UI
         public Brush GameBrush { get; private set; } = Brushes.Gray;
         public string GameDetail { get; private set; } = "";
         public ICommand WakeCameraCommand { get; }
+        public ICommand TurnCameraOffCommand { get; }
+        public ICommand DeleteLogsCommand { get; }
+
+        /// <summary>The Privacy page's first line: is the camera on, and if not, why.</summary>
+        public string CameraStateText { get; private set; } = "";
+        public Brush CameraStateBrush { get; private set; } = Brushes.Gray;
+
+        /// <summary>What log files are on disk now.</summary>
+        public string LogFilesText { get; private set; } = "";
+        private string _logFilesNote;
+
+        private void UpdateLogFilesText()
+        {
+            long bytes = 0;
+            int files = 0;
+            foreach (string path in new[] { _log.FilePath, _log.PreviousPath })
+            {
+                try
+                {
+                    if (File.Exists(path))
+                    {
+                        files++;
+                        bytes += new FileInfo(path).Length;
+                    }
+                }
+                catch (Exception)
+                {
+                    // Gone between the check and the read: not on disk.
+                }
+            }
+
+            string onDisk = files == 0 ? "No log files on disk." : "On disk: " + files + " file" + (files == 1 ? "" : "s") + ", " + (bytes / 1024.0).ToString("0") + " KB.";
+            LogFilesText = (_logFilesNote != null ? _logFilesNote + " " : "") + onDisk;
+            Raise(nameof(LogFilesText));
+        }
 
         /// <summary>Shown on the Overview while the camera is off on purpose.</summary>
         public string CameraOffText { get; private set; }
@@ -410,7 +455,7 @@ namespace HeadTracking.App.UI
         public Visibility NoPreviewVisibility => PreviewVisibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
         public string NoPreviewText => Settings.Source == SourceKind.OpenTrack
             ? "OpenTrack shows its own camera view."
-            : !Settings.ShowPreview ? "Preview off (Tracking page)." : "Waiting for the camera...";
+            : !Settings.ShowPreview ? "Preview off (Privacy page)." : "Waiting for the camera...";
 
         public string PluginText => AppPaths.PluginInstalled
             ? "Plugin installed: BepInEx\\plugins\\HeadTracking\\HeadTracking.Plugin.dll"
@@ -435,8 +480,35 @@ namespace HeadTracking.App.UI
             Tracking = tracking;
             SourceError = s.Source?.Error;
             CameraOffText = s.CameraOffReason == null ? null
-                : "The camera is off: " + s.CameraOffReason + ". It turns on by itself when a raid starts, when you bring this window to the front, "
-                  + "or with the in-game keys; nothing is watched while it is off.";
+                : s.CameraManuallyOff
+                    ? "The camera is off because you turned it off. It stays off until you turn it on here, on the Privacy page, or with F7 in game."
+                    : "The camera is off: " + s.CameraOffReason + ". It turns on by itself when a raid starts, when you bring this window to the front, "
+                      + "or with the in-game keys; nothing is watched while it is off.";
+            if (Settings.Source != SourceKind.Webcam)
+            {
+                CameraStateText = "OpenTrack is the source: this app does not use a camera.";
+                CameraStateBrush = Brush("SubTextBrush");
+            }
+            else if (s.CameraOffReason != null)
+            {
+                CameraStateText = "Camera off (light off): " + s.CameraOffReason + ".";
+                CameraStateBrush = Brush("SubTextBrush");
+            }
+            else if (s.CameraRunning)
+            {
+                CameraStateText = "Camera on: tracking your head, nothing saved or sent.";
+                CameraStateBrush = Brush("GoodBrush");
+            }
+            else
+            {
+                CameraStateText = "Camera starting...";
+                CameraStateBrush = Brush("WarnBrush");
+            }
+
+            if (_selectedPage == PrivacyPage)
+            {
+                UpdateLogFilesText();
+            }
             if (s.CameraOffReason != null)
             {
                 TrackerStatus = "Camera off";
@@ -559,6 +631,8 @@ namespace HeadTracking.App.UI
             Raise(nameof(SourceErrorVisibility));
             Raise(nameof(CameraOffText));
             Raise(nameof(CameraOffVisibility));
+            Raise(nameof(CameraStateText));
+            Raise(nameof(CameraStateBrush));
             Raise(nameof(HeadX));
             Raise(nameof(HeadY));
             Raise(nameof(GhostX));
@@ -700,6 +774,16 @@ namespace HeadTracking.App.UI
                 // The one-slider control: sets stillness, motion smoothing, smoothing, steadiness.
                 Settings.ApplyFeel();
                 Raise(nameof(FeelText));
+            }
+
+            if (e.PropertyName == nameof(AppSettings.SaveLogFile))
+            {
+                _log.Info(Settings.SaveLogFile ? "Saving the log to disk: on." : "Saving the log to disk: off; from now on it is kept in memory only.");
+                _log.SetFileEnabled(Settings.SaveLogFile);
+                if (_selectedPage == PrivacyPage)
+                {
+                    UpdateLogFilesText();
+                }
             }
 
             if (e.PropertyName == nameof(AppSettings.Sensitivity))

@@ -36,6 +36,10 @@ namespace HeadTracking.App
 
         /// <summary>Why the webcam is off on purpose (privacy), or null while it may run.</summary>
         public string CameraOffReason;
+        /// <summary>True when the off was the user's own "Turn camera off now".</summary>
+        public bool CameraManuallyOff;
+        /// <summary>The webcam is open (its light is on).</summary>
+        public bool CameraRunning;
     }
 
     /// <summary>
@@ -163,7 +167,18 @@ namespace HeadTracking.App
         /// <summary>The "Turn camera on" button: ends a sleep and keeps the camera on a while.</summary>
         public void WakeCamera()
         {
-            _work.Enqueue(() => _camera.Wake(Clock.Now(), "turned on from the app"));
+            _work.Enqueue(() => _camera.Wake(Clock.Now(), "turned on from the app", true));
+            _wake.Set();
+        }
+
+        /// <summary>"Turn camera off now" on the Privacy page: off until the user turns it on.</summary>
+        public void TurnCameraOff()
+        {
+            _work.Enqueue(() =>
+            {
+                _log.Info("Camera turned off from the Privacy page; it stays off until turned on again.");
+                _camera.TurnOff();
+            });
             _wake.Set();
         }
 
@@ -407,7 +422,7 @@ namespace HeadTracking.App
                         break;
                     case LinkCommand.Recenter:
                         _log.Info("Recenter key pressed in game.");
-                        _camera.Wake(Clock.Now(), "recenter key pressed in game");
+                        _camera.Wake(Clock.Now(), "recenter key pressed in game", true);
                         _tracker.RequestRecenter();
                         break;
                     case LinkCommand.Toggle:
@@ -415,7 +430,7 @@ namespace HeadTracking.App
                         _log.Info("Toggle key pressed in game: head tracking " + (_settings.Enabled ? "ON" : "OFF") + ".");
                         if (_settings.Enabled)
                         {
-                            _camera.Wake(Clock.Now(), "toggle key pressed in game");
+                            _camera.Wake(Clock.Now(), "toggle key pressed in game", true);
                         }
 
                         EnabledToggledFromGame?.Invoke(_settings.Enabled);
@@ -597,6 +612,7 @@ namespace HeadTracking.App
                 Allowed = CameraAllowed,
                 Enabled = _settings.Enabled,
                 OnlyWhenNeeded = _settings.CameraOnlyWhenNeeded,
+                AwaySeconds = _settings.AwayMinutes * 60,
                 GameConnected = connected,
                 InRaid = connected && status.InRaid,
                 AppActive = AppActive,
@@ -685,6 +701,8 @@ namespace HeadTracking.App
                 GameStatus = status,
                 LinkError = _link?.BindError,
                 CameraOffReason = _settings.Source == SourceKind.Webcam ? _cameraOffReason : null,
+                CameraManuallyOff = _settings.Source == SourceKind.Webcam && _camera.ManuallyOff && _cameraOffReason == CameraPolicy.ManualOffReason,
+                CameraRunning = _source is WebcamSource,
             };
 
             lock (_snapshotLock)

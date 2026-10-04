@@ -150,9 +150,10 @@ a graph of the response curve per axis and the jitter and stillness band in use 
 | Page | What it controls |
 |---|---|
 | Overview | Live head and in-game pads (the head pad's faint dot is the raw reading), the Live motion graph, the Sensitivity and Feel sliders, Tracking quality with a tip, a camera preview, a warning if the camera runs slow, quick start. |
-| Tracking source | Webcam or OpenTrack. Which camera and picture format; keep the full frame rate in low light; the camera's own settings dialog; model (Fast, Balanced, Accurate); check every frame twice (mirrored); CPU threads; camera field of view; face-detection confidence; how long an unsure detector is trusted. Privacy: the camera only when needed, the window hidden from screen capture. |
+| Tracking source | Webcam or OpenTrack. Which camera and picture format; keep the full frame rate in low light; the camera's own settings dialog; model (Fast, Balanced, Accurate); check every frame twice (mirrored); CPU threads; camera field of view; face-detection confidence; how long an unsure detector is trusted. |
 | Response | Per axis: sensitivity, dead zone, furthest turn, curve and invert, each with a live graph. Smoothness: Feel, plus stillness, motion smoothing, steadiness, smoothing and fast-movement response, with the live jitter readout. Auto-centre. |
 | In game | When to pause (aiming, cursor showing, window unfocused) and how fast to fade; what happens when tracking drops out (hold, return, glide back); the in-game keys. |
+| Privacy | The camera's live state with *Turn camera off now* and *Turn camera on*; turn the camera off when it isn't needed, and after how long with nobody in view; hide this window from screen capture; the camera preview; save a log file, delete the log files. |
 | Diagnostics | Plugin found or not, rates and timings, and the live log. |
 
 ### Using OpenTrack instead of the webcam tracker
@@ -163,7 +164,12 @@ smoothing, and OpenTrack's dead zone makes a still head look like a lost one.
 
 ## Privacy
 
-Everything below was checked in the code, not just intended.
+Everything below was checked in the code, not just intended. The app's **Privacy** page has every
+choice in one place:
+- the camera's live state, with *Turn camera off now* and *Turn camera on*;
+- when the camera turns itself off;
+- hiding the window from screen capture, and the camera preview;
+- whether a log is saved, with a button to delete the log files.
 
 **The camera picture.**
 - Only HeadTracking.exe opens the webcam. Each frame is analysed in memory and then overwritten by
@@ -173,19 +179,22 @@ Everything below was checked in the code, not just intended.
   never opens the camera.
 - The preview exists only in the app's window. By default that window is **hidden from screen
   capture**: OBS, Discord or Teams screen share, the Snipping Tool and PrintScreen all leave it out,
-  so the preview can't end up on a stream. You still see it normally. A switch on the Tracking source
-  page turns this off when you want a screenshot.
+  so the preview can't end up on a stream. You still see it normally. Turn it off on the Privacy
+  page when you want a screenshot. The preview itself can be switched off there too.
 
 **When the camera is on.** Only when it's needed. It runs while SPT is running or the app's window
 is in front. It turns off, and its light goes out:
 - 30 seconds after neither is true;
 - at once when head tracking is switched off (the header switch or F8);
-- after 3 minutes with nobody in view outside a raid. In a raid it never sleeps: a lost face there
-  is you looking away.
+- after 3 minutes with nobody in view outside a raid (1 to 30, your choice). In a raid it never
+  sleeps: a lost face there is you looking away.
 
 It wakes when a raid starts, when you bring the window to the front, with F7/F8 in game, or with
-*Turn camera on* on the Overview. Turn off *Turn the camera off when it isn't needed* to keep it on
-while the app is open.
+*Turn camera on*. Turn off *Turn the camera off when it isn't needed* to keep it on while the app is
+open.
+
+*Turn camera off now* is different: the camera stays off until **you** turn it back on, with the
+button or F7 in game. A raid starting or the window coming to the front won't undo it.
 
 **What leaves the app.**
 - Two head angles, about 30 times a second, go to the game on this PC (UDP to 127.0.0.1). The game
@@ -205,7 +214,9 @@ your head.
 - `HeadTrackingApp\settings.json` holds your settings and the camera's name.
 - `HeadTrackingApp\logs\` holds this run's log and the previous one. They record head angles, frame
   rates, picture brightness, and when a face was found or lost, so they show when you sat at the PC.
-  Your Windows user name is written as `%USERPROFILE%`. Read a log before sharing it.
+  Your Windows user name is written as `%USERPROFILE%`. Read a log before sharing it. Turn off
+  *Save a log file* on the Privacy page to keep the log in memory only, and use *Delete log files
+  now* to remove the saved ones.
 
 ## Multiplayer (FIKA)
 
@@ -222,8 +233,8 @@ head tracking.
 | The view shakes or drifts while you hold still | The Tracking quality card on the Overview: its tip names the likeliest cause. Then move Feel to the right. The log's `Status:` line every 10 s gives the camera's real frame rate, the measured jitter and the stillness band. |
 | "Looking for your face" never changes | Under about 40/255 brightness the room is too dark; the quality card says so, and Diagnostics shows the value. Face the camera; try a lower face-detection confidence. |
 | The camera runs under 25 fps | Turn on "Keep the full frame rate" (Tracking source), add light, or shorten the exposure in Camera settings. |
-| The header says **Camera off** | On purpose, for privacy: no game running and the window in the background, nobody in view for 3 minutes, or tracking switched off. It turns on by itself when a raid starts or you bring the window to the front; *Turn camera on* on the Overview does it at once. |
-| A screenshot or stream shows the app as black or missing | That is *Hide this window from screen capture* (Tracking source page). Turn it off for the screenshot. |
+| The header says **Camera off** | On purpose, for privacy: no game running and the window in the background, nobody in view for 3 minutes, or tracking switched off, or you pressed *Turn camera off now*. It turns on by itself when a raid starts or you bring the window to the front (not after *Turn camera off now*); *Turn camera on* on the Overview or the Privacy page does it at once. |
+| A screenshot or stream shows the app as black or missing | That is *Hide this window from screen capture* (Privacy page). Turn it off for the screenshot. |
 | "Not tracking" with an error | The message says what to do: camera in use by another program (Discord, OBS, Teams, a browser), no camera found, or Windows' camera privacy setting. |
 | "Game not connected" in raid | The plugin must be in `BepInEx\plugins\HeadTracking`. The game's log, `BepInEx\LogOutput.log`, has lines starting `[Info :Head Tracking]`; look for `Listening for HeadTracking.exe` and `HeadTracking.exe connected`. |
 | The view moves the wrong way | Invert that axis on the Response page. The game's log has a `Direction check` line the first time you turn and tilt. |

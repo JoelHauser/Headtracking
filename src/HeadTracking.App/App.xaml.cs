@@ -23,6 +23,13 @@ namespace HeadTracking.App
             base.OnStartup(e);
             AppPaths.EnsureDirectories();
             _log = new AppLog(AppPaths.LogDirectory);
+            string[] devModes = { "--test-image", "--jitter-test", "--benchmark", "--replay", "--live-jitter", "--camera-test" };
+            if (e.Args.Any(a => devModes.Contains(a)))
+            {
+                // Developer runs write their log at once; normal runs wait for the "Save a log file" setting.
+                _log.SetFileEnabled(true);
+            }
+
             _log.Info(AppInfo.Name + " " + AppInfo.Version + " starting on " + Environment.OSVersion + ", .NET " + Environment.Version + ".");
             _log.Info("Folder: " + AppPaths.ExeDirectory + (AppPaths.InSptFolder ? " (SPT install)" : " (not an SPT install)")
                       + "; plugin " + (AppPaths.PluginInstalled ? "found" : "NOT found") + " in BepInEx\\plugins\\HeadTracking.");
@@ -98,6 +105,12 @@ namespace HeadTracking.App
             {
                 _settings.Save(AppPaths.SettingsFile, _log);
             }
+
+            _log.SetFileEnabled(_settings.SaveLogFile);
+            if (!_settings.SaveLogFile)
+            {
+                _log.Info("Saving the log to disk is off (Privacy page); it is kept in memory only.");
+            }
             _engine = new TrackingEngine(_settings, _log);
             // The page renders may never contain a camera picture: in snapshot mode the camera stays shut.
             _engine.CameraAllowed = Array.IndexOf(args, "--snapshot") < 0;
@@ -137,7 +150,7 @@ namespace HeadTracking.App
 
                 _log.Info("Snapshot written: " + path);
                 page++;
-                if (page > 4)
+                if (page > 5)
                 {
                     timer.Stop();
                     window.Close();

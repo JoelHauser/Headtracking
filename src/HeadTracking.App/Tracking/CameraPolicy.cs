@@ -9,6 +9,8 @@ namespace HeadTracking.Tracking
         public bool Enabled;
         /// <summary>The "Turn the camera off when it isn't needed" setting.</summary>
         public bool OnlyWhenNeeded;
+        /// <summary>Nobody in view this long outside a raid turns it off. 0: the default, 3 minutes.</summary>
+        public double AwaySeconds;
         /// <summary>The game is running and talking to the app.</summary>
         public bool GameConnected;
         public bool InRaid;
@@ -23,17 +25,22 @@ namespace HeadTracking.Tracking
     /// <summary>
     /// Privacy: the webcam runs only while it is needed. On while SPT is running or the app's
     /// window is in front; off (its light goes out) 30 s after neither, at once when tracking is
-    /// switched off, and after 3 minutes with nobody in view outside a raid. A raid starting, the
-    /// window coming to the front, the in-game keys or the "Turn camera on" button wake it.
-    /// In a raid it never sleeps: a lost face there is someone looking away, not someone gone.
+    /// switched off, and after a few minutes with nobody in view outside a raid. A raid starting,
+    /// the window coming to the front, the in-game keys or the "Turn camera on" button wake it.
+    /// In a raid it never sleeps on its own: a lost face there is someone looking away.
+    ///
+    /// "Turn camera off now" is the user's own choice and sticks: only the user undoes it (the
+    /// button, or F7/F8 in game), never a raid starting or the window coming to the front.
     /// </summary>
     public sealed class CameraPolicy
     {
         public const double GraceSeconds = 30;
-        public const double AwaySeconds = 180;
+        public const double DefaultAwaySeconds = 180;
+        public const string ManualOffReason = "turned off on the Privacy page";
 
-        private bool _asleep, _wasActive = true, _wasInRaid;
+        private bool _asleep, _manualOff, _wasActive = true, _wasInRaid;
         private double _neededUntil, _lastFace;
+        private string _wakeReason;
 
         public CameraPolicy(double now)
         {
@@ -46,6 +53,8 @@ namespace HeadTracking.Tracking
 
         public bool Wanted => OffReason == null;
 
+        public bool ManuallyOff => _manualOff;
+
         /// <summary>The last wake-up's cause, for the log; cleared when read.</summary>
         public string TakeWakeReason()
         {
@@ -54,9 +63,8 @@ namespace HeadTracking.Tracking
             return r;
         }
 
-        private string _wakeReason;
-
-        public void Wake(double now, string why)
+        /// <param name="byUser">The user asked for it (button, in-game key): also ends "Turn camera off now".</param>
+        public void Wake(double now, string why, bool byUser)
         {
             if (!Wanted || _asleep)
             {
@@ -64,11 +72,22 @@ namespace HeadTracking.Tracking
             }
 
             _asleep = false;
+            if (byUser)
+            {
+                _manualOff = false;
+            }
+
             _lastFace = now;
             _neededUntil = now + GraceSeconds;
         }
 
-        /// <summary>The camera just opened: the 3 minutes count from now, not from before it closed.</summary>
+        /// <summary>"Turn camera off now": off until the user turns it back on.</summary>
+        public void TurnOff()
+        {
+            _manualOff = true;
+        }
+
+        /// <summary>The camera just opened: the away time counts from now, not from before it closed.</summary>
         public void Opened(double now)
         {
             _lastFace = now;
@@ -78,11 +97,11 @@ namespace HeadTracking.Tracking
         {
             if (i.InRaid && !_wasInRaid)
             {
-                Wake(now, "a raid started");
+                Wake(now, "a raid started", false);
             }
             else if (i.AppActive && !_wasActive)
             {
-                Wake(now, "this window came to the front");
+                Wake(now, "this window came to the front", false);
             }
 
             _wasInRaid = i.InRaid;
@@ -93,6 +112,7 @@ namespace HeadTracking.Tracking
                 _lastFace = now;
             }
 
+            double away = i.AwaySeconds > 0 ? i.AwaySeconds : DefaultAwaySeconds;
             string reason = null;
             if (!i.Allowed)
             {
@@ -102,16 +122,20 @@ namespace HeadTracking.Tracking
             {
                 reason = "head tracking is switched off";
             }
+            else if (_manualOff)
+            {
+                reason = ManualOffReason;
+            }
             else if (i.OnlyWhenNeeded)
             {
-                if (!_asleep && i.Running && !i.InRaid && now - _lastFace > AwaySeconds)
+                if (!_asleep && i.Running && !i.InRaid && now - _lastFace > away)
                 {
                     _asleep = true;
                 }
 
                 if (_asleep)
                 {
-                    reason = "nobody in view for " + (int)(AwaySeconds / 60) + " minutes outside a raid";
+                    reason = "nobody in view for " + Minutes(away) + " outside a raid";
                 }
                 else if (i.AppActive || i.GameConnected)
                 {
@@ -124,6 +148,12 @@ namespace HeadTracking.Tracking
             }
 
             OffReason = reason;
+        }
+
+        private static string Minutes(double seconds)
+        {
+            int m = (int)System.Math.Round(seconds / 60);
+            return m == 1 ? "a minute" : m + " minutes";
         }
     }
 }

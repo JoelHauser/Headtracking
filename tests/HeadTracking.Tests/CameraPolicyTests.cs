@@ -72,7 +72,7 @@ public class CameraPolicyTests
         // The window staying in front does not wake it (it never left the front); the button does.
         Run(p, 183, 400, Base(active: true, face: false));
         Assert.False(p.Wanted);
-        p.Wake(401, "turned on from the app");
+        p.Wake(401, "turned on from the app", true);
         p.Update(401, Base(active: true, face: false));
         Assert.True(p.Wanted);
     }
@@ -99,7 +99,7 @@ public class CameraPolicyTests
         var p = new CameraPolicy(0);
         var i = Base(active: true, inRaid: true);
         i.Allowed = false;
-        p.Wake(1, "turned on from the app");
+        p.Wake(1, "turned on from the app", true);
         p.Update(1, i);
         Assert.False(p.Wanted);
     }
@@ -112,5 +112,52 @@ public class CameraPolicyTests
         i.OnlyWhenNeeded = false;
         Run(p, 0, 3600, i);
         Assert.True(p.Wanted);
+    }
+
+    [Fact]
+    public void TurnedOffByTheUserStaysOffUntilTheUserTurnsItOn()
+    {
+        var p = new CameraPolicy(0);
+        Run(p, 0, 5, Base(active: true));
+        p.TurnOff();
+        p.Update(6, Base(active: true));
+        Assert.False(p.Wanted);
+        Assert.Equal(CameraPolicy.ManualOffReason, p.OffReason);
+
+        // Alt-tab away and back, then a raid starting: still off.
+        Run(p, 7, 20, Base());
+        p.Update(21, Base(active: true));
+        Run(p, 22, 60, Base(inRaid: true));
+        Assert.False(p.Wanted);
+
+        // The button (or F7/F8) turns it back on.
+        p.Wake(61, "turned on from the app", true);
+        p.Update(61, Base(inRaid: true));
+        Assert.True(p.Wanted);
+    }
+
+    [Fact]
+    public void TheAwayTimeIsTheUsersChoice()
+    {
+        var p = new CameraPolicy(0);
+        var i = Base(active: true, face: false);
+        i.AwaySeconds = 60;
+        Run(p, 0, 59, i);
+        Assert.True(p.Wanted);
+        Run(p, 60, 62, i);
+        Assert.False(p.Wanted);
+        Assert.Contains("a minute", p.OffReason);
+    }
+
+    [Fact]
+    public void SwitchedOffBeatsEverything()
+    {
+        var p = new CameraPolicy(0);
+        var i = Base(active: true, inRaid: true);
+        i.Enabled = false;
+        i.OnlyWhenNeeded = false;
+        p.Wake(1, "turned on from the app", true);
+        p.Update(1, i);
+        Assert.False(p.Wanted);
     }
 }

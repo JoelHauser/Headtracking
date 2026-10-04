@@ -55,6 +55,8 @@ namespace HeadTracking.App
             _enabled = true;
             _cameraOnlyWhenNeeded = true;
             _hideFromCapture = true;
+            _awayMinutes = 3;
+            _saveLogFile = true;
             _mirrorAverage = true;
             _source = SourceKind.Webcam;
             _cameraName = "";
@@ -209,7 +211,14 @@ namespace HeadTracking.App
         [DataMember] public bool Enabled { get => _enabled; set => Set(ref _enabled, value); }
 
         // ---- privacy -------------------------------------------------------------------------
-        private bool _cameraOnlyWhenNeeded, _hideFromCapture;
+        private bool _cameraOnlyWhenNeeded, _hideFromCapture, _saveLogFile;
+        private double _awayMinutes;
+
+        /// <summary>Nobody in view this long outside a raid turns the camera off (with CameraOnlyWhenNeeded).</summary>
+        [DataMember] public double AwayMinutes { get => _awayMinutes; set => Set(ref _awayMinutes, Clamp(value, 1, 30)); }
+
+        /// <summary>Write the log to HeadTrackingApp\logs. Off: kept in memory only, for the Diagnostics page.</summary>
+        [DataMember] public bool SaveLogFile { get => _saveLogFile; set => Set(ref _saveLogFile, value); }
 
         /// <summary>Webcam on only while SPT runs or this window is in front; see TrackingEngine.</summary>
         [DataMember] public bool CameraOnlyWhenNeeded { get => _cameraOnlyWhenNeeded; set => Set(ref _cameraOnlyWhenNeeded, value); }

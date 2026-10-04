@@ -28,6 +28,7 @@
                     <ListBoxItem><StackPanel Orientation="Horizontal"><TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE714;" Width="26" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" /><TextBlock Text="Tracking source" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" /></StackPanel></ListBoxItem>
                     <ListBoxItem><StackPanel Orientation="Horizontal"><TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE713;" Width="26" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" /><TextBlock Text="Response" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" /></StackPanel></ListBoxItem>
                     <ListBoxItem><StackPanel Orientation="Horizontal"><TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE7FC;" Width="26" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" /><TextBlock Text="In game" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" /></StackPanel></ListBoxItem>
+                    <ListBoxItem><StackPanel Orientation="Horizontal"><TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE72E;" Width="26" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" /><TextBlock Text="Privacy" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" /></StackPanel></ListBoxItem>
                     <ListBoxItem><StackPanel Orientation="Horizontal"><TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE9D9;" Width="26" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" /><TextBlock Text="Diagnostics" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" /></StackPanel></ListBoxItem>
                 </ListBox>
             </DockPanel>
@@ -280,7 +281,6 @@
                                         <TextBlock Text="Automatic picks about 640 x 480 at the highest frame rate. More pixels do not track better; more frames per second do." Style="{StaticResource Hint}" Margin="0,6,0,0" />
                                         <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.KeepFullFrameRate}" Content="Keep the full frame rate in low light" Margin="0,14,0,0" />
                                         <TextBlock Text="Turns off the camera's low light compensation. With it on, most webcams drop to 15 pictures a second in anything but bright light, and head tracking stutters. Off, the picture is a little darker; the tracker copes." Style="{StaticResource Hint}" Margin="52,0,0,6" />
-                                        <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.ShowPreview}" Content="Show the camera preview in this window" />
                                         <Button Content="Camera settings..." HorizontalAlignment="Left" Margin="0,10,0,0" Command="{Binding CameraSettingsCommand}"
                                                 ToolTip="The camera driver's own dialog: exposure, gain, white balance. A shorter manual exposure also keeps the frame rate up." />
                                     </StackPanel>
@@ -313,23 +313,6 @@
                                     <TextBlock Style="{StaticResource Hint}" FontSize="13" LineHeight="21">
                                         In OpenTrack: set Output to "UDP over network", click its hammer icon and enter IP 127.0.0.1 and the port above (4242 is OpenTrack's default), then press Start.<LineBreak />
                                         Set the dead zones of OpenTrack's filter to 0: this app smooths and dead-zones on its own, and OpenTrack's dead zone makes a still head look like a lost one.
-                                    </TextBlock>
-                                </StackPanel>
-                            </Border>
-
-                            <Border Style="{StaticResource Card}">
-                                <StackPanel>
-                                    <TextBlock Text="Privacy" Style="{StaticResource CardTitle}" />
-                                    <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.CameraOnlyWhenNeeded}" Content="Turn the camera off when it isn't needed" />
-                                    <TextBlock Style="{StaticResource Hint}" Margin="0,4,0,12" TextWrapping="Wrap"
-                                               Text="On while SPT is running or this window is in front. Off (its light goes out) 30 seconds after neither, after 3 minutes with nobody in view outside a raid, and whenever head tracking is switched off." />
-                                    <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.HideFromCapture}" Content="Hide this window from screen capture and streams" />
-                                    <TextBlock Style="{StaticResource Hint}" Margin="0,4,0,12" TextWrapping="Wrap"
-                                               Text="OBS, Discord screen share and screenshots leave this window out, so the camera preview cannot be streamed. You still see it. Turn it off to take a screenshot of the app." />
-                                    <TextBlock Style="{StaticResource Hint}" FontSize="13" LineHeight="21" TextWrapping="Wrap">
-                                        Camera pictures are analysed in memory and dropped; none is ever saved, sent or shown anywhere but this window.<LineBreak />
-                                        All that leaves this app is two angles about 30 times a second, to the game on this PC (127.0.0.1), never to the network, the SPT server or other players.<LineBreak />
-                                        ONNX Runtime's usage telemetry is switched off, and the logs keep your Windows user name out.
                                     </TextBlock>
                                 </StackPanel>
                             </Border>
@@ -488,6 +471,78 @@
                                 </StackPanel>
                             </Grid>
                             <Button Content="Reset this page to defaults" HorizontalAlignment="Left" Command="{Binding ResetInGameCommand}" />
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+
+                <!-- ===== Privacy ========================================================= -->
+                <TabItem>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="28,22">
+                        <StackPanel>
+                            <TextBlock Text="Privacy" Style="{StaticResource PageTitle}" />
+                            <TextBlock Text="What the camera sees stays in this app's memory. Choose when the camera runs, who can see this window, and what is written to disk." Style="{StaticResource PageSubtitle}" />
+
+                            <Border Style="{StaticResource Card}">
+                                <StackPanel>
+                                    <TextBlock Text="Camera" Style="{StaticResource CardTitle}" />
+                                    <Grid Margin="0,0,0,14">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <Ellipse Width="10" Height="10" Fill="{Binding CameraStateBrush}" VerticalAlignment="Center" />
+                                        <TextBlock Grid.Column="1" Text="{Binding CameraStateText}" FontWeight="SemiBold" TextWrapping="Wrap" Margin="10,0,12,0" VerticalAlignment="Center" />
+                                        <Button Grid.Column="2" Content="Turn camera off now" Command="{Binding TurnCameraOffCommand}" Margin="0,0,8,0"
+                                                ToolTip="Off until you turn it on again here, or with F7 in game. A raid starting does not turn it back on." />
+                                        <Button Grid.Column="3" Content="Turn camera on" Command="{Binding WakeCameraCommand}" />
+                                    </Grid>
+                                    <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.CameraOnlyWhenNeeded}" Content="Turn the camera off when it isn't needed" />
+                                    <TextBlock Style="{StaticResource Hint}" Margin="52,0,0,10" TextWrapping="Wrap"
+                                               Text="On while SPT is running or this window is in front. Off, light and all, 30 seconds after neither, and after the time below with nobody in view outside a raid. It turns back on when a raid starts or you bring this window to the front. Switching head tracking off (header switch or F8) always turns the camera off." />
+                                    <ui:SettingSlider Label="Turn off when nobody is in view for" Minimum="1" Maximum="30" Step="1" Format="0" Unit="min" Value="{Binding Settings.AwayMinutes}"
+                                                      Hint="Outside a raid only. In a raid the camera stays on: a lost face there is you looking away." />
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource Card}">
+                                <StackPanel>
+                                    <TextBlock Text="Screen" Style="{StaticResource CardTitle}" />
+                                    <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.HideFromCapture}" Content="Hide this window from screen capture and streams" />
+                                    <TextBlock Style="{StaticResource Hint}" Margin="52,0,0,10" TextWrapping="Wrap"
+                                               Text="OBS, Discord or Teams screen share, the Snipping Tool and PrintScreen leave this window out, so the camera preview cannot end up on a stream or in a screenshot. You still see it normally. Turn it off to take a screenshot of the app." />
+                                    <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.ShowPreview}" Content="Show the camera preview in this window" />
+                                    <TextBlock Style="{StaticResource Hint}" Margin="52,0,0,0" TextWrapping="Wrap"
+                                               Text="A small greyscale copy on the Overview, so you can see what the tracker sees. Shown here only, never saved. Off, tracking works the same." />
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource Card}">
+                                <StackPanel>
+                                    <TextBlock Text="Logs" Style="{StaticResource CardTitle}" />
+                                    <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.SaveLogFile}" Content="Save a log file" />
+                                    <TextBlock Style="{StaticResource Hint}" Margin="52,0,0,10" TextWrapping="Wrap"
+                                               Text="HeadTrackingApp\logs keeps this run's log and the last run's. They hold head angles, frame rates, picture brightness, and when a face was found or lost, so they show when you sat at the PC; never a picture, and your Windows user name is left out. They help when something goes wrong. Off, the log is kept in memory only (Diagnostics page) and gone when the app closes; files already saved stay until you delete them." />
+                                    <TextBlock Text="{Binding LogFilesText}" Style="{StaticResource Hint}" Margin="0,0,0,8" />
+                                    <StackPanel Orientation="Horizontal">
+                                        <Button Content="Delete log files now" Command="{Binding DeleteLogsCommand}" Margin="0,0,8,0" />
+                                        <Button Content="Open log folder" Command="{Binding OpenLogFolderCommand}" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <Border Style="{StaticResource Card}">
+                                <StackPanel>
+                                    <TextBlock Text="What leaves this app" Style="{StaticResource CardTitle}" />
+                                    <TextBlock Style="{StaticResource Hint}" FontSize="13" LineHeight="22" TextWrapping="Wrap">
+                                        Camera pictures are analysed in memory and dropped. None is ever recorded, saved or sent.<LineBreak />
+                                        Two head angles, about 30 times a second, go to the game on this PC (127.0.0.1); the game sends back whether you are in raid. Nothing goes to the network, the SPT server or other players.<LineBreak />
+                                        No internet connection, no update check, no analytics. ONNX Runtime's usage telemetry, built into its Windows version, is always switched off.<LineBreak />
+                                        Settings stay in HeadTrackingApp\settings.json on this PC.
+                                    </TextBlock>
+                                </StackPanel>
+                            </Border>
                         </StackPanel>
                     </ScrollViewer>
                 </TabItem>
