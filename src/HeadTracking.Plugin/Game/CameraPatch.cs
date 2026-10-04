@@ -34,7 +34,10 @@ namespace HeadTracking.Game
         private const double DirectionCheckDegrees = 8.0;
 
         internal static readonly PauseFader Fader = new PauseFader();
-        private static readonly PauseFader ZoomFader = new PauseFader();
+
+        // Render-rate follow toward the newest pose: smooth motion from 30 Hz camera poses.
+        private static SmoothFollow _yawFollow, _pitchFollow;
+        private static double _lastFollowTime = double.NaN;
 
         private static Player _player;
         private static bool _applied;
@@ -115,7 +118,6 @@ namespace HeadTracking.Game
                 if (_errors >= ErrorsBeforeGivingUp)
                 {
                     _broken = true;
-                    ZoomController.Reduction = 0;
                     HeadTrackingPlugin.Log.LogError("Camera hook failed " + _errors
                                                     + " times; head tracking is off until the game restarts. The first errors are above.");
                 }
@@ -153,22 +155,28 @@ namespace HeadTracking.Game
 
             LogReasonChanges(reasons);
 
-            // Zoom: always paused while aiming (the scope owns the FOV then), whatever the
-            // freelook setting says.
-            PauseReason zoomReasons = reasons;
-            if (IsAiming(player))
+            double weight = Fader.Eased;
+            double targetYaw = link.Pose.Yaw * weight;
+            double targetPitch = link.Pose.Pitch * weight;
+
+            // Follow the target every rendered frame. A gap means the camera was not ours
+            // (loading, death): start again where the target is, with no motion.
+            double dt = double.IsNaN(_lastFollowTime) ? 0 : now - _lastFollowTime;
+            _lastFollowTime = now;
+            if (dt > PauseFader.GapSeconds || dt < 0)
             {
-                zoomReasons |= PauseReason.Aiming;
+                _yawFollow.Reset(targetYaw);
+                _pitchFollow.Reset(targetPitch);
+                dt = 0;
             }
 
-            ZoomFader.Tick(zoomReasons, now, settings.PauseFadeMs / 1000.0);
-            ZoomController.Reduction = settings.ZoomEnabled
-                ? (float)(Mathf.Clamp01(link.Pose.Zoom) * settings.ZoomMaxFovReduction * ZoomFader.Eased)
-                : 0f;
-
-            double weight = Fader.Eased;
-            double yaw = link.Pose.Yaw * weight;
-            double pitch = link.Pose.Pitch * weight;
+            double smoothTime = settings.MotionSmoothingMs / 1000.0;
+            _yawFollow.Step(targetYaw, smoothTime, dt);
+            _pitchFollow.Step(targetPitch, smoothTime, dt);
+            _yawFollow.SettleOnZero(targetYaw);
+            _pitchFollow.SettleOnZero(targetPitch);
+            double yaw = _yawFollow.Value;
+            double pitch = _pitchFollow.Value;
 
             ProceduralWeaponAnimation pwa = player.ProceduralWeaponAnimation;
             if (pwa == null)
@@ -310,6 +318,9 @@ namespace HeadTracking.Game
             _player = player;
             _applied = false;
             _firstApplyLogged = false;
+            _yawFollow.Reset();
+            _pitchFollow.Reset();
+            _lastFollowTime = double.NaN;
             ResetDirectionChecks();
 
             EFTHardSettings hard = EFTHardSettings.Instance;
@@ -380,9 +391,9 @@ namespace HeadTracking.Game
                 ? "camera (pitch " + Deg(composed.Value.x) + ", yaw " + Deg(composed.Value.y) + ") | " + limits
                 : "camera vanilla (pitch " + Deg(player.HeadRotation.x) + ", yaw " + Deg(player.HeadRotation.y) + ")";
             HeadTrackingPlugin.Log.LogInfo("Trace: app " + link.Pose.State + (link.Connected ? "" : " (link lost)")
-                                           + " | app offset yaw " + Deg(link.Pose.Yaw) + " pitch " + Deg(link.Pose.Pitch) + " zoom " + link.Pose.Zoom.ToString("0.00")
+                                           + " | app offset yaw " + Deg(link.Pose.Yaw) + " pitch " + Deg(link.Pose.Pitch)
+                                           + " | followed yaw " + Deg(_yawFollow.Value) + " pitch " + Deg(_pitchFollow.Value)
                                            + " | pause weight " + weight.ToString("0.00") + " (" + PauseFader.Describe(reasons) + ")"
-                                           + " | fov -" + ZoomController.Reduction.ToString("0.0")
                                            + " | " + camera);
         }
 

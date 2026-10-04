@@ -6,7 +6,7 @@ namespace HeadTracking.Shared
 {
     // The link between HeadTracking.exe (the app) and the BepInEx plugin (the mod), over UDP on
     // 127.0.0.1. Two one-way channels:
-    //   app -> mod, mod's port (default 4243): Pose, ~120 per second; GameSettings, on change and
+    //   app -> mod, mod's port (default 4243): Pose, ~125 per second; GameSettings, on change and
     //                                          once a second so a game started later picks them up.
     //   mod -> app, app's port (default 4244): Status, 10 per second; Command, when an in-game
     //                                          hotkey is pressed, and Hello until settings arrive.
@@ -53,7 +53,7 @@ namespace HeadTracking.Shared
     /// <summary>
     /// The head offset to apply, already through the app's whole pipeline (centre, smoothing,
     /// dead zones, curves, caps, tracking-loss handling). Game convention: degrees, positive yaw
-    /// left, positive pitch down. Zoom 0..1.
+    /// left, positive pitch down.
     /// </summary>
     public struct PoseMessage
     {
@@ -62,7 +62,6 @@ namespace HeadTracking.Shared
         public bool Enabled;
         public float Yaw;
         public float Pitch;
-        public float Zoom;
     }
 
     /// <summary>The settings only the mod can act on, because they depend on game state.</summary>
@@ -72,11 +71,13 @@ namespace HeadTracking.Shared
         public bool PauseWhileAiming = true;
         public bool PauseWhenCursorVisible = true;
         public bool PauseWhenUnfocused = true;
-        public bool ZoomEnabled;
         public float PauseFadeMs = 250;
 
-        /// <summary>Degrees of field of view removed at full zoom.</summary>
-        public float ZoomMaxFovReduction = 15;
+        /// <summary>
+        /// Time constant of the plugin's critically damped follow toward the newest pose, run every
+        /// rendered frame. Turns camera-rate steps (30 Hz) into continuous motion. 0 is off.
+        /// </summary>
+        public float MotionSmoothingMs = 60;
 
         /// <summary>With no pose for this long the app is treated as gone and the view eases home.</summary>
         public float LinkTimeoutMs = 300;
@@ -102,16 +103,16 @@ namespace HeadTracking.Shared
         public int PauseReasons;
         public float AppliedYaw;
         public float AppliedPitch;
-        public float AppliedFovReduction;
-        public float BaseFov;
         public float HookMicros;
+        public float GameFps;
         public string ModVersion;
     }
 
     public static class LinkProtocol
     {
         public const uint Magic = 0x314B5448; // "HTK1" as little-endian bytes
-        public const byte Version = 1;
+        /// <summary>2 since 0.3.0: zoom removed, motion smoothing added. A mismatched app and plugin ignore each other.</summary>
+        public const byte Version = 2;
         public const int HeaderSize = 6;
         public const int DefaultModPort = 4243;
         public const int DefaultAppPort = 4244;
@@ -139,7 +140,6 @@ namespace HeadTracking.Shared
                 w.Write(m.Enabled);
                 w.Write(m.Yaw);
                 w.Write(m.Pitch);
-                w.Write(m.Zoom);
             });
         }
 
@@ -153,10 +153,9 @@ namespace HeadTracking.Shared
                 result.Enabled = r.ReadBoolean();
                 result.Yaw = r.ReadSingle();
                 result.Pitch = r.ReadSingle();
-                result.Zoom = r.ReadSingle();
             });
             m = result;
-            return ok && Finite(m.Yaw) && Finite(m.Pitch) && Finite(m.Zoom);
+            return ok && Finite(m.Yaw) && Finite(m.Pitch);
         }
 
         // ---- GameSettings ------------------------------------------------------------
@@ -169,9 +168,8 @@ namespace HeadTracking.Shared
                 w.Write(m.PauseWhileAiming);
                 w.Write(m.PauseWhenCursorVisible);
                 w.Write(m.PauseWhenUnfocused);
-                w.Write(m.ZoomEnabled);
                 w.Write(m.PauseFadeMs);
-                w.Write(m.ZoomMaxFovReduction);
+                w.Write(m.MotionSmoothingMs);
                 w.Write(m.LinkTimeoutMs);
                 w.Write(m.ToggleKey);
                 w.Write((int)m.ToggleModifiers);
@@ -189,9 +187,8 @@ namespace HeadTracking.Shared
                 result.PauseWhileAiming = r.ReadBoolean();
                 result.PauseWhenCursorVisible = r.ReadBoolean();
                 result.PauseWhenUnfocused = r.ReadBoolean();
-                result.ZoomEnabled = r.ReadBoolean();
                 result.PauseFadeMs = r.ReadSingle();
-                result.ZoomMaxFovReduction = r.ReadSingle();
+                result.MotionSmoothingMs = r.ReadSingle();
                 result.LinkTimeoutMs = r.ReadSingle();
                 result.ToggleKey = r.ReadInt32();
                 result.ToggleModifiers = (KeyModifiers)r.ReadInt32();
@@ -215,9 +212,8 @@ namespace HeadTracking.Shared
                 w.Write(m.PauseReasons);
                 w.Write(m.AppliedYaw);
                 w.Write(m.AppliedPitch);
-                w.Write(m.AppliedFovReduction);
-                w.Write(m.BaseFov);
                 w.Write(m.HookMicros);
+                w.Write(m.GameFps);
                 w.Write(m.ModVersion ?? "");
             });
         }
@@ -234,9 +230,8 @@ namespace HeadTracking.Shared
                 result.PauseReasons = r.ReadInt32();
                 result.AppliedYaw = r.ReadSingle();
                 result.AppliedPitch = r.ReadSingle();
-                result.AppliedFovReduction = r.ReadSingle();
-                result.BaseFov = r.ReadSingle();
                 result.HookMicros = r.ReadSingle();
+                result.GameFps = r.ReadSingle();
                 result.ModVersion = r.ReadString();
             });
             m = result;

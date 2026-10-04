@@ -27,6 +27,9 @@ namespace HeadTracking.App.Webcam
         public double LocalizerMs;
         public double PoseMs;
         public string LossReason;
+
+        /// <summary>The network's rotation uncertainty for this frame, degrees (0 if unknown).</summary>
+        public double RotationSigma;
     }
 
     /// <summary>
@@ -156,6 +159,7 @@ namespace HeadTracking.App.Webcam
 
             result.Valid = true;
             result.Pose = pose;
+            result.RotationSigma = f.RotationSigmaDegrees;
             return result;
         }
 

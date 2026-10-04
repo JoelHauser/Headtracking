@@ -13,8 +13,8 @@ namespace HeadTracking
     /// <summary>
     /// The game half of Head Tracking. HeadTracking.exe (in the SPT folder) reads the webcam or
     /// OpenTrack, does all the head maths and holds every setting; it sends this plugin the final
-    /// head offset over local UDP. The plugin applies it to the freelook camera when that is safe,
-    /// applies lean-in zoom, and reports game state back to the app.
+    /// head offset over local UDP. The plugin follows it smoothly at the game's frame rate, applies
+    /// it to the freelook camera when that is safe, and reports game state back to the app.
     ///
     /// Threads: <see cref="ModLink"/> receives on its own thread. Everything else runs on Unity's
     /// main thread: <see cref="Update"/> reads the link, handles hotkeys and sends status, and
@@ -27,7 +27,7 @@ namespace HeadTracking
         public const string PluginName = "Head Tracking";
 
         /// <summary>Must match the csproj's Version. Two places, and they have to agree.</summary>
-        public const string PluginVersion = "0.2.0";
+        public const string PluginVersion = "0.3.0";
 
         private const double BindRetrySeconds = 5.0;
         private const double HelloIntervalSeconds = 1.0;
@@ -69,6 +69,9 @@ namespace HeadTracking
         private double _nextStatusLog;
         private long _lastPoseCount;
         private double _lastPoseCountTime;
+        private int _frames;
+        private double _framesSince;
+        private double _gameFps;
 
         private void Awake()
         {
@@ -97,12 +100,10 @@ namespace HeadTracking
             {
                 GameAccess.Resolve(Logger);
                 CameraPatch.Apply(harmony);
-                ZoomController.Install();
             }
             catch (Exception e)
             {
                 harmony.UnpatchSelf();
-                ZoomController.Uninstall();
                 Logger.LogError(PluginName + " " + PluginVersion + " could not hook the camera, so the game is unmodified: " + e);
                 _linkWanted = false;
                 return;
@@ -175,13 +176,7 @@ namespace HeadTracking
 
             RefreshLinkView(now);
             HandleKeys();
-
-            // The camera hook only runs for a live local player. Without it (menus, death,
-            // loading) nothing would clear the zoom, so clear it here.
-            if (now - CameraPatch.LastDriveTime > 0.2)
-            {
-                ZoomController.Reduction = 0;
-            }
+            CountFrame(now);
 
             if (!Link.SettingsFromApp && now >= _nextHello)
             {
@@ -282,14 +277,13 @@ namespace HeadTracking
             {
                 Sequence = ++_statusSequence,
                 InRaid = inRaid,
-                Applying = inRaid && (Math.Abs(CameraPatch.LastYaw) > 0 || Math.Abs(CameraPatch.LastPitch) > 0 || ZoomController.LastApplied > 0),
+                Applying = inRaid && (Math.Abs(CameraPatch.LastYaw) > 0 || Math.Abs(CameraPatch.LastPitch) > 0),
                 HasSettings = Link.SettingsFromApp,
                 PauseReasons = inRaid ? (int)CameraPatch.Fader.Reasons : 0,
                 AppliedYaw = (float)CameraPatch.LastYaw,
                 AppliedPitch = (float)CameraPatch.LastPitch,
-                AppliedFovReduction = ZoomController.Reduction,
-                BaseFov = ZoomController.LastBaseFov,
                 HookMicros = CameraPatch.LastHookMicros,
+                GameFps = (float)_gameFps,
                 ModVersion = PluginVersion,
             });
         }
@@ -317,14 +311,14 @@ namespace HeadTracking
             string camera = CameraPatch.InRaid && now - CameraPatch.LastDriveTime < 0.5
                 ? "camera hook " + frames + " frames (" + applied + " with an offset), " + avgMicros.ToString("0.0") + " us avg, "
                   + maxMicros.ToString("0") + " us max; pause " + PauseFader.Describe(CameraPatch.Fader.Reasons)
-                  + " (weight " + CameraPatch.Fader.Eased.ToString("0.00") + "); fov -" + ZoomController.LastApplied.ToString("0.0")
+                  + " (weight " + CameraPatch.Fader.Eased.ToString("0.00") + ")"
                 : "no local player (menus or loading)";
 
             Logger.LogInfo("Status: link " + (Link.Connected ? "up" : "DOWN") + ", " + rate.ToString("0") + " poses/s"
                            + (Link.SettingsFromApp ? "" : ", no settings from the app yet (defaults)")
                            + " | app " + Link.Pose.State + (Link.Connected && !Link.Pose.Enabled ? " (turned off in the app)" : "")
                            + " | offset yaw " + Link.Pose.Yaw.ToString("+0.0;-0.0;0.0") + " pitch " + Link.Pose.Pitch.ToString("+0.0;-0.0;0.0")
-                           + " zoom " + Link.Pose.Zoom.ToString("0.00")
+                           + " | game " + _gameFps.ToString("0") + " fps, motion smoothing " + Link.Settings.MotionSmoothingMs.ToString("0") + " ms"
                            + " | " + camera);
         }
 
@@ -352,11 +346,21 @@ namespace HeadTracking
             }
         }
 
+        private void CountFrame(double now)
+        {
+            _frames++;
+            if (now - _framesSince >= 1.0)
+            {
+                _gameFps = _frames / (now - _framesSince);
+                _frames = 0;
+                _framesSince = now;
+            }
+        }
+
         private void OnApplicationQuit()
         {
             Logger.LogInfo("Game quitting; closing the link.");
             _linkWanted = false;
-            ZoomController.Uninstall();
             StopLink();
             _threadLog.Drain(WriteLog);
         }
@@ -364,7 +368,6 @@ namespace HeadTracking
         private void OnDestroy()
         {
             _linkWanted = false;
-            ZoomController.Uninstall();
             StopLink();
         }
     }

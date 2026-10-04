@@ -46,14 +46,14 @@ namespace HeadTracking.App
             _cameraName = "";
             _cameraFormat = "";
             _model = ModelQuality.Balanced;
-            _inferenceThreads = 2;
+            _inferenceThreads = 1;
+            _keepFullFrameRate = true;
             _cameraFov = 70;
             _detectionThreshold = 0.5;
             _faceLostAfterMs = 1000;
             _showPreview = true;
             _openTrackPort = 4242;
             ResetResponse();
-            ResetZoom();
             ResetInGame();
             _gamePort = LinkProtocol.DefaultModPort;
             _statusPort = LinkProtocol.DefaultAppPort;
@@ -71,17 +71,11 @@ namespace HeadTracking.App
             PitchCurve = 1.0;
             InvertYaw = false;
             InvertPitch = false;
+            Steadiness = 1.0;
             Smoothing = 0.5;
             FastMoveResponse = 0.5;
+            MotionSmoothingMs = 60;
             AutoCenterOnStart = true;
-        }
-
-        public void ResetZoom()
-        {
-            ZoomEnabled = false;
-            ZoomDeadZoneCm = 2;
-            ZoomFullCm = 10;
-            ZoomMaxFov = 15;
         }
 
         public void ResetInGame()
@@ -134,6 +128,9 @@ namespace HeadTracking.App
         private double _faceLostAfterMs;
         [DataMember] public double FaceLostAfterMs { get => _faceLostAfterMs; set => Set(ref _faceLostAfterMs, Clamp(value, 0, 5000)); }
 
+        private bool _keepFullFrameRate;
+        [DataMember] public bool KeepFullFrameRate { get => _keepFullFrameRate; set => Set(ref _keepFullFrameRate, value); }
+
         private bool _showPreview;
         [DataMember] public bool ShowPreview { get => _showPreview; set => Set(ref _showPreview, value); }
 
@@ -144,7 +141,7 @@ namespace HeadTracking.App
         // ---- response -------------------------------------------------------------------------
         private double _yawSensitivity, _pitchSensitivity, _yawDeadZone, _pitchDeadZone, _maxYaw, _maxPitch, _yawCurve, _pitchCurve;
         private bool _invertYaw, _invertPitch, _autoCenterOnStart;
-        private double _smoothing, _fastMoveResponse;
+        private double _smoothing, _fastMoveResponse, _steadiness, _motionSmoothingMs;
 
         [DataMember] public double YawSensitivity { get => _yawSensitivity; set => Set(ref _yawSensitivity, Clamp(value, 0.1, 8)); }
         [DataMember] public double PitchSensitivity { get => _pitchSensitivity; set => Set(ref _pitchSensitivity, Clamp(value, 0.1, 8)); }
@@ -156,18 +153,11 @@ namespace HeadTracking.App
         [DataMember] public double PitchCurve { get => _pitchCurve; set => Set(ref _pitchCurve, Clamp(value, 0.5, 3)); }
         [DataMember] public bool InvertYaw { get => _invertYaw; set => Set(ref _invertYaw, value); }
         [DataMember] public bool InvertPitch { get => _invertPitch; set => Set(ref _invertPitch, value); }
+        [DataMember] public double Steadiness { get => _steadiness; set => Set(ref _steadiness, Clamp(value, 0, 3)); }
         [DataMember] public double Smoothing { get => _smoothing; set => Set(ref _smoothing, Clamp(value, 0, 1)); }
+        [DataMember] public double MotionSmoothingMs { get => _motionSmoothingMs; set => Set(ref _motionSmoothingMs, Clamp(value, 0, 250)); }
         [DataMember] public double FastMoveResponse { get => _fastMoveResponse; set => Set(ref _fastMoveResponse, Clamp(value, 0, 1)); }
         [DataMember] public bool AutoCenterOnStart { get => _autoCenterOnStart; set => Set(ref _autoCenterOnStart, value); }
-
-        // ---- zoom -----------------------------------------------------------------------------
-        private bool _zoomEnabled;
-        private double _zoomDeadZoneCm, _zoomFullCm, _zoomMaxFov;
-
-        [DataMember] public bool ZoomEnabled { get => _zoomEnabled; set => Set(ref _zoomEnabled, value); }
-        [DataMember] public double ZoomDeadZoneCm { get => _zoomDeadZoneCm; set => Set(ref _zoomDeadZoneCm, Clamp(value, 0, 20)); }
-        [DataMember] public double ZoomFullCm { get => _zoomFullCm; set => Set(ref _zoomFullCm, Clamp(value, 1, 40)); }
-        [DataMember] public double ZoomMaxFov { get => _zoomMaxFov; set => Set(ref _zoomMaxFov, Clamp(value, 1, 40)); }
 
         // ---- in game --------------------------------------------------------------------------
         private bool _pauseWhileAiming, _pauseWhenCursorVisible, _pauseWhenUnfocused;
@@ -214,11 +204,9 @@ namespace HeadTracking.App
                 PitchCurve = PitchCurve,
                 InvertYaw = InvertYaw,
                 InvertPitch = InvertPitch,
+                Steadiness = Steadiness,
                 Smoothing = Smoothing,
                 FastMoveResponse = FastMoveResponse,
-                ZoomEnabled = ZoomEnabled,
-                ZoomDeadZone = ZoomDeadZoneCm,
-                ZoomFullDistance = ZoomFullCm,
                 AutoCenterOnStart = AutoCenterOnStart,
                 NoDataTimeout = NoDataTimeoutMs / 1000.0,
                 FrozenTimeout = FrozenTimeoutMs / 1000.0,
@@ -236,9 +224,8 @@ namespace HeadTracking.App
                 PauseWhileAiming = PauseWhileAiming,
                 PauseWhenCursorVisible = PauseWhenCursorVisible,
                 PauseWhenUnfocused = PauseWhenUnfocused,
-                ZoomEnabled = ZoomEnabled,
                 PauseFadeMs = (float)PauseFadeMs,
-                ZoomMaxFovReduction = (float)ZoomMaxFov,
+                MotionSmoothingMs = (float)MotionSmoothingMs,
                 LinkTimeoutMs = 300,
                 RecenterKey = RecenterKey,
                 RecenterModifiers = Modifiers(RecenterCtrl, RecenterShift, RecenterAlt),
@@ -249,7 +236,7 @@ namespace HeadTracking.App
 
         public WebcamConfig ToWebcam()
         {
-            return new WebcamConfig { CameraName = CameraName, FormatKey = CameraFormat, Quality = Model, Threads = InferenceThreads };
+            return new WebcamConfig { CameraName = CameraName, FormatKey = CameraFormat, Quality = Model, Threads = InferenceThreads, KeepFrameRate = KeepFullFrameRate };
         }
 
         public WebcamTrackerOptions ToWebcamOptions()

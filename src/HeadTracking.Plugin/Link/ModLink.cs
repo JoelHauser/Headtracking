@@ -206,6 +206,18 @@ namespace HeadTracking.Link
             if (!LinkProtocol.TryReadHeader(buffer, length, out LinkMessageType type))
             {
                 long foreign = Interlocked.Increment(ref _foreign);
+                bool otherVersion = length >= LinkProtocol.HeaderSize && BitConverter.ToUInt32(buffer, 0) == LinkProtocol.Magic;
+                if (otherVersion)
+                {
+                    if (foreign == 1)
+                    {
+                        _log.Log(LogLevel.Warning, "HeadTracking.exe speaks link protocol version " + buffer[4] + ", this plugin version " + LinkProtocol.Version
+                                                   + ". Install the app and the plugin from the same release.");
+                    }
+
+                    return;
+                }
+
                 if (foreign == 1 || foreign % 1000 == 0)
                 {
                     _log.Log(LogLevel.Warning, "Ignored " + foreign + " datagram(s) on port " + Port + " that are not from HeadTracking.exe ("
@@ -232,7 +244,7 @@ namespace HeadTracking.Link
                         if (Interlocked.Increment(ref _poses) == 1)
                         {
                             _log.Log(LogLevel.Info, "First pose from HeadTracking.exe: state " + pose.State + ", yaw " + pose.Yaw.ToString("0.0")
-                                                    + ", pitch " + pose.Pitch.ToString("0.0") + ", zoom " + pose.Zoom.ToString("0.00") + ".");
+                                                    + ", pitch " + pose.Pitch.ToString("0.0") + ".");
                         }
                     }
 
@@ -253,9 +265,8 @@ namespace HeadTracking.Link
                         {
                             _log.Log(LogLevel.Info, "Settings from HeadTracking.exe (revision " + settings.Revision + "): pause while aiming "
                                                     + settings.PauseWhileAiming + ", cursor " + settings.PauseWhenCursorVisible + ", unfocused "
-                                                    + settings.PauseWhenUnfocused + ", fade " + settings.PauseFadeMs + " ms, zoom "
-                                                    + (settings.ZoomEnabled ? "on, up to " + settings.ZoomMaxFovReduction + " deg" : "off")
-                                                    + ", recenter key " + settings.RecenterKey + " (" + settings.RecenterModifiers + ")"
+                                                    + settings.PauseWhenUnfocused + ", fade " + settings.PauseFadeMs + " ms, motion smoothing "
+                                                    + settings.MotionSmoothingMs + " ms, recenter key " + settings.RecenterKey + " (" + settings.RecenterModifiers + ")"
                                                     + ", toggle key " + settings.ToggleKey + " (" + settings.ToggleModifiers + ").");
                         }
                     }

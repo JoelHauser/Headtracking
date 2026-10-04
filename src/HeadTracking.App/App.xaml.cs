@@ -47,6 +47,20 @@ namespace HeadTracking.App
                 return;
             }
 
+            if (args.Contains("--jitter-test"))
+            {
+                Shutdown(Dev.JitterTest.Run(args, _log));
+                return;
+            }
+
+            if (args.Contains("--camera-test"))
+            {
+                // Off the UI thread: FlashCap's open/start continue on the caller's context, and
+                // blocking the dispatcher on them deadlocks.
+                Shutdown(System.Threading.Tasks.Task.Run(() => Dev.CameraTest.Run(args, _log)).GetAwaiter().GetResult());
+                return;
+            }
+
             _singleInstance = new Mutex(true, "Local\\HeadTracking.App.SingleInstance", out bool first);
             if (!first)
             {
@@ -92,7 +106,7 @@ namespace HeadTracking.App
 
                 _log.Info("Snapshot written: " + path);
                 page++;
-                if (page > 5)
+                if (page > 4)
                 {
                     timer.Stop();
                     window.Close();

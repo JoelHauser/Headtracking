@@ -30,6 +30,12 @@ namespace HeadTracking.Tracking
         /// </summary>
         public bool ReportsValidity;
         public bool Valid;
+
+        /// <summary>
+        /// The source's own one-sigma uncertainty of this pose's rotation, in degrees; 0 when it
+        /// does not say (OpenTrack). Scales the tracker's steadiness filter.
+        /// </summary>
+        public double RotationSigma;
     }
 
     public struct ReceiverStats

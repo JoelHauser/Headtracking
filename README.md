@@ -14,21 +14,27 @@ It comes in two parts:
 - **A BepInEx plugin**, which applies the result to the freelook camera only when it is safe to
   (not in menus, not while aiming down sights) and reports back what the game is doing.
 
-> **Status: 0.2.0, first public build.** The app, the webcam tracker, the link to the game and the
-> plugin are built and tested outside the game (85 unit tests; the webcam pipeline checked on still
-> images; the packaged app smoke-tested; the app-to-game link tested with a stand-in for the game).
-> It has **not yet been played in a raid**. Expect the first in-raid test to need a setting or an
-> Invert switch flipped.
+> **Status: 0.3.0.** First played in raid with 0.2.0, which shook: the webcam ran at 15 frames a
+> second and nothing filtered the tracker's frame-to-frame noise. 0.3.0 runs the camera at its full
+> 30 fps, adds OpenTrack's uncertainty-scaled steadiness filter, and glides between camera frames at
+> the game's frame rate; on a still head the shake measures 2.5 to 3 times lower at the defaults. It
+> also uses about a seventh of the CPU (16% of one core with the window open, 10% minimized; it was
+> 112%). Not yet played in raid in this form.
 
 ## Features
 
 - **Built-in webcam tracking.** No OpenTrack, no markers, no extra hardware. Uses OpenTrack's
-  open-source neural head-pose models, run locally with ONNX Runtime (about 2 ms of CPU per frame).
+  open-source neural head-pose models, run locally with ONNX Runtime (about 2 to 4 ms of one CPU
+  core per frame; the whole app uses around 10% of one core).
 - **OpenTrack input** too, for anything OpenTrack supports (TrackIR-style IR clips, ArUco markers,
   phone apps, other cameras).
 - **Freelook with your head.** Yaw and pitch, with sensitivity, dead zone, maximum angle, response
-  curve and invert per axis, plus adaptive smoothing (1€ filter): steady when still, quick on fast turns.
-- **Lean to zoom.** Lean toward the screen to narrow the field of view a little; sit back to undo it.
+  curve and invert per axis.
+- **Smooth, not shaky.** The camera is kept at its full frame rate (webcams halve it in dim light
+  unless told not to). Each camera frame goes through a steadiness filter that holds still against
+  noise the network itself says it is unsure about (OpenTrack's method), then adaptive smoothing
+  (1€ filter: steady when still, quick on fast turns). In the game, the view glides between camera
+  frames at your frame rate instead of stepping 30 times a second.
 - **Plays nicely with the game.** Respects EFT's own freelook limits (and mods that change them),
   pauses while aiming down sights, in menus, inventory, dialogs, cutscenes and when alt-tabbed, and
   never touches aim or recoil. Inside the dead zone the camera is exactly vanilla.
@@ -41,9 +47,9 @@ It comes in two parts:
 
 ## Screenshots
 
-| Response | Lean to zoom | In game |
+| Tracking source | Response | In game |
 |---|---|---|
-| ![Response page](docs/response.png) | ![Lean to zoom page](docs/zoom.png) | ![In game page](docs/in-game.png) |
+| ![Tracking source page](docs/tracking.png) | ![Response page](docs/response.png) | ![In game page](docs/in-game.png) |
 
 ## Requirements
 
@@ -80,10 +86,9 @@ Leave the app running while you play; closing it eases the view back to centre.
 
 | Page | What it controls |
 |---|---|
-| Overview | Live head and in-game pads, camera preview, lean-to-zoom meter, quick start. |
-| Tracking source | Webcam or OpenTrack; which camera and picture format; model (fast, balanced, accurate); CPU threads; camera field of view; face-detection confidence; how long an unsure detector is trusted. |
-| Response | Per axis: sensitivity, dead zone, furthest turn, curve, invert, each with a live graph. Smoothing and fast-movement response. Auto-centre. |
-| Lean to zoom | On/off, where zoom starts, where it is full, how much field of view it takes. |
+| Overview | Live head and in-game pads, camera preview, a warning if the camera runs slow, quick start. |
+| Tracking source | Webcam or OpenTrack; which camera and picture format; keep the full frame rate in low light; the camera's own settings dialog; model (fast, balanced, accurate); CPU threads; camera field of view; face-detection confidence; how long an unsure detector is trusted. |
+| Response | Per axis: sensitivity, dead zone, furthest turn, curve, invert, each with a live graph. Steadiness, motion smoothing, smoothing and fast-movement response. Auto-centre. |
 | In game | When to pause (aiming, cursor showing, window unfocused) and how fast to fade; what happens when tracking drops out (hold, return, glide back); the in-game keys. |
 | Diagnostics | Plugin found or not, rates and timings, and the live log. |
 
@@ -111,6 +116,7 @@ head tracking.
 | Symptom | Look at |
 |---|---|
 | "Looking for your face" never changes | Diagnostics shows picture brightness: under about 40/255 the room is too dark. Face the camera; try a lower face-detection confidence. |
+| The view steps or shakes | The log's `Status:` line every 10 s gives the camera's real frame rate. Under 25 fps: keep "Keep the full frame rate" on, add light, or shorten the exposure in Camera settings. Then raise Steadiness or Motion smoothing on the Response page. |
 | "Not tracking" with an error | The message says what to do: camera in use by another program (Discord, OBS, Teams, a browser), no camera found, or Windows' camera privacy setting. |
 | "Game not connected" in raid | The plugin must be in `BepInEx\plugins`. The game's log, `BepInEx\LogOutput.log`, has lines starting `[Info :Head Tracking]`; look for `Listening for HeadTracking.exe` and `HeadTracking.exe connected`. |
 | The view moves the wrong way | Invert that axis on the Response page. The game's log has a `Direction check` line the first time you turn and tilt. |
@@ -123,7 +129,7 @@ The app's log is `HeadTrackingApp\logs\HeadTracking.log` (Diagnostics > Open log
 ```
  webcam --> HeadTracking.exe ------------------------------- UDP 127.0.0.1:4243 --> BepInEx plugin --> freelook camera
             face detector + head-pose network (ONNX)            head offset,          pauses (menus, ADS...),
-            centre, 1€ smoothing, dead zone, curve, cap         zoom, settings        game look limits, zoom (FOV)
+            centre, steadiness, 1€ smoothing, dead zone, curve  settings              game look limits, smooth follow
             tracking-loss hold / return / glide            <--- UDP 127.0.0.1:4244 --- status, in-game keys
  OpenTrack -- UDP 127.0.0.1:4242 --^
 ```
@@ -132,13 +138,17 @@ The app's log is `HeadTrackingApp\logs\HeadTracking.log` (Diagnostics > Open log
   head, a pose network gives its rotation, centre and size, and OpenTrack's geometry turns that into
   yaw/pitch/roll and distance, corrected for the head sitting off the image centre. Frames are
   converted straight from the camera's YUV data to greyscale with no colour conversion, and the
-  networks always work on the newest frame, so a slow frame costs a frame, never latency.
+  networks always work on the newest frame, so a slow frame costs a frame, never latency. The
+  camera's low light compensation (UVC auto-exposure priority) is switched off through DirectShow,
+  which on a Logitech C920 took it from 15 to 30 fps.
+- **Filtering** happens once per camera frame, with the real time between frames: first OpenTrack's
+  soft dead zone, sized by the pose network's own per-frame uncertainty output, then a 1€ filter.
 - **In the game**, the plugin is a Harmony prefix on `Player.VisualPass`: after the game's own
   freelook has run and before the camera is placed, it sets the camera's head rotation to *mouse
   freelook + head offset*, clamped and shaped exactly as `Player.Look` shapes mouse freelook. It
   never writes `Player.HeadRotation`, so nothing accumulates and nothing is sent to other players.
-  Zoom narrows the main camera's field of view for the length of each render and puts it back
-  afterwards, so the game's own FOV logic never sees it.
+  It follows the app's newest pose with a critically damped spring every rendered frame, so 30 Hz
+  updates become continuous motion at 60, 144 or 240 fps.
 
 ## Building from source
 
@@ -160,8 +170,11 @@ scripts\pack.ps1 -SPTPath H:\SPT4.1.X -ModelsPath "C:\Program Files (x86)\opentr
 | `scripts/fake-game.ps1` | Stands in for the game: prints what the app sends and answers like the plugin. |
 | `scripts/send-test-poses.ps1` | Stands in for OpenTrack: scripted head movements, face loss and recovery, for testing without a camera. |
 
-`HeadTracking.exe --test-image face.png --out results.txt` runs the webcam tracker on still images
-(also mirrored and shifted) and reports what it finds; `--snapshot <folder>` renders every page to PNG.
+Developer modes of `HeadTracking.exe`: `--test-image face.png --out results.txt` runs the webcam
+tracker on still images (also mirrored and shifted); `--jitter-test face.png` measures how much each
+model and filter setting shakes on a still face with sensor noise; `--camera-test` measures the frame
+rate the camera really delivers; `--snapshot <folder>` renders every page to PNG. None of them keeps
+or shows camera pictures.
 
 ## Credits
 

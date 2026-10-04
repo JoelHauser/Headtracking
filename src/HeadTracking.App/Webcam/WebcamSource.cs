@@ -14,10 +14,13 @@ namespace HeadTracking.App.Webcam
         public string CameraName = "";
         public string FormatKey = "";
         public ModelQuality Quality = ModelQuality.Balanced;
-        public int Threads = 2;
+        public int Threads = 1;
+
+        /// <summary>Turn the camera's low light compensation off, so it keeps its full frame rate.</summary>
+        public bool KeepFrameRate = true;
 
         /// <summary>Restarting the source is needed when this changes.</summary>
-        public string Identity => CameraName + "|" + FormatKey + "|" + Quality + "|" + Threads;
+        public string Identity => CameraName + "|" + FormatKey + "|" + Quality + "|" + Threads + "|" + KeepFrameRate;
     }
 
     /// <summary>A small greyscale copy of the newest frame with what the tracker saw, for the app's preview.</summary>
@@ -82,6 +85,8 @@ namespace HeadTracking.App.Webcam
         // While no face is found: the best detector score and the average brightness, reported
         // every few seconds. Numbers only; the picture itself is never kept or written anywhere.
         private double _nextNoFaceReport;
+        private double _sigmaSum;
+        private long _sigmaCount;
         private float _bestScoreSinceReport;
         private double _brightness;
 
@@ -98,7 +103,14 @@ namespace HeadTracking.App.Webcam
         public string OpenedCamera { get; private set; }
 
         /// <summary>The configuration as it was actually applied, for deciding whether a settings change needs a restart.</summary>
-        public WebcamConfig EffectiveConfig => new WebcamConfig { CameraName = OpenedCamera ?? _config.CameraName, FormatKey = _config.FormatKey, Quality = _config.Quality, Threads = _config.Threads };
+        public WebcamConfig EffectiveConfig => new WebcamConfig
+        {
+            CameraName = OpenedCamera ?? _config.CameraName,
+            FormatKey = _config.FormatKey,
+            Quality = _config.Quality,
+            Threads = _config.Threads,
+            KeepFrameRate = _config.KeepFrameRate,
+        };
 
         public WaitHandle NewData => _newData;
 
@@ -162,13 +174,7 @@ namespace HeadTracking.App.Webcam
                 _log.Log(LogLevel.Warning, ModelLocator.PoseFileFor(_config.Quality) + " not found; using " + System.IO.Path.GetFileName(pose) + " instead.");
             }
 
-            SessionOptions options = new SessionOptions
-            {
-                IntraOpNumThreads = Math.Max(1, Math.Min(8, _config.Threads)),
-                InterOpNumThreads = 1,
-                GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL,
-                ExecutionMode = ExecutionMode.ORT_SEQUENTIAL,
-            };
+            SessionOptions options = CreateSessionOptions(_config.Threads);
 
             _localizer = new Localizer(localizer, options);
             _poseEstimator = new PoseEstimator(pose, options);
@@ -176,6 +182,26 @@ namespace HeadTracking.App.Webcam
             _log.Log(LogLevel.Info, "Models loaded (" + options.IntraOpNumThreads + " inference thread(s)): " + _localizer.Describe()
                                     + "; " + System.IO.Path.GetFileName(pose) + " " + _poseEstimator.Describe() + ".");
             return true;
+        }
+
+        /// <summary>
+        /// ONNX Runtime's worker threads busy-wait ("spin") between runs by default, so a network
+        /// run 30 times a second for 2 ms kept whole cores busy: the app measured 112% of a core.
+        /// Spinning off, they sleep between frames. The networks are small enough that one thread
+        /// is the sensible default.
+        /// </summary>
+        public static SessionOptions CreateSessionOptions(int threads)
+        {
+            SessionOptions options = new SessionOptions
+            {
+                IntraOpNumThreads = Math.Max(1, Math.Min(8, threads)),
+                InterOpNumThreads = 1,
+                GraphOptimizationLevel = GraphOptimizationLevel.ORT_ENABLE_ALL,
+                ExecutionMode = ExecutionMode.ORT_SEQUENTIAL,
+            };
+            options.AddSessionConfigEntry("session.intra_op.allow_spinning", "0");
+            options.AddSessionConfigEntry("session.inter_op.allow_spinning", "0");
+            return options;
         }
 
         private bool OpenCamera()
@@ -207,6 +233,7 @@ namespace HeadTracking.App.Webcam
                 return false;
             }
 
+            _log.Log(LogLevel.Info, CameraControl.SetFrameRatePriority(camera.Name, _config.KeepFrameRate));
             _log.Log(LogLevel.Info, "Opening " + camera.Name + " at " + format + " (" + camera.Formats.Count + " usable formats).");
             try
             {
@@ -368,6 +395,9 @@ namespace HeadTracking.App.Webcam
                 {
                     HeadPose p = result.Pose;
                     _snapshot.Pose = new Pose(p.X, p.Y, p.Z, p.Yaw, p.Pitch, p.Roll);
+                    _snapshot.RotationSigma = result.RotationSigma;
+                    _sigmaSum += result.RotationSigma;
+                    _sigmaCount++;
                 }
 
                 _snapshot.HasPose = true;
@@ -455,6 +485,33 @@ namespace HeadTracking.App.Webcam
             {
                 return double.IsNaN(_lastFrameTime) ? now - _lastRateTimeStart : now - _lastFrameTime;
             }
+        }
+
+        /// <summary>Average network uncertainty since the last call, degrees (for the status line).</summary>
+        public double TakeAverageSigma()
+        {
+            lock (_snapshotLock)
+            {
+                double average = _sigmaCount > 0 ? _sigmaSum / _sigmaCount : 0;
+                _sigmaSum = 0;
+                _sigmaCount = 0;
+                return average;
+            }
+        }
+
+        /// <summary>
+        /// The camera driver's own settings dialog (exposure, gain, white balance, low light
+        /// compensation). Modal; returns once it is closed.
+        /// </summary>
+        public bool ShowCameraSettings(IntPtr owner)
+        {
+            CaptureDevice device = _device;
+            if (device == null || !device.HasPropertyPage)
+            {
+                return false;
+            }
+
+            return device.ShowPropertyPageAsync(owner).GetAwaiter().GetResult();
         }
 
         public bool TryGetSnapshot(out PoseSnapshot snapshot)

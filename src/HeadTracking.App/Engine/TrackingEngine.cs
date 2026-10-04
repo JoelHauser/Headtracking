@@ -1,7 +1,8 @@
 using System;
 using System.Collections.Concurrent;
-using System.Runtime.InteropServices;
+using System.Diagnostics;
 using System.Threading;
+using System.Threading.Tasks;
 using HeadTracking.App.Sources;
 using HeadTracking.App.Webcam;
 using HeadTracking.Shared;
@@ -17,11 +18,13 @@ namespace HeadTracking.App
         public TrackState State;
         public LossKind Loss;
         public bool Enabled;
-        public double RelativeYaw, RelativePitch, RelativeZ;
-        public double OutputYaw, OutputPitch, OutputZoom;
+        public double RelativeYaw, RelativePitch;
+        public double OutputYaw, OutputPitch;
         public double RawYaw, RawPitch, RawZ;
+        public double Sigma;
         public bool Centered;
         public double TicksPerSecond;
+        public double CpuPercent;
 
         public bool GameConnected;
         public StatusMessage GameStatus;
@@ -29,26 +32,25 @@ namespace HeadTracking.App
     }
 
     /// <summary>
-    /// Runs the whole pipeline on one thread: newest pose from the source, through the tracker,
-    /// out to the game; plus the game's commands back. Ticks the moment the source has a new pose,
-    /// and at least every 8 ms otherwise, so the game sees each camera frame within a millisecond
-    /// or two of the networks finishing with it.
+    /// Runs the pipeline on one thread: newest pose from the source, through the tracker, out to
+    /// the game; plus the game's commands back. Ticks the moment the source has a new pose, and
+    /// about 30 times a second otherwise (the plugin follows smoothly at the game's frame rate, so
+    /// sending faster than the camera only costs CPU).
     ///
-    /// The UI talks to it only through <see cref="Apply"/>, <see cref="Recenter"/> and
-    /// <see cref="GetSnapshot"/>, all thread safe.
+    /// Opening and closing the camera takes up to a second, so it happens on a worker task: the
+    /// engine keeps ticking (and the game keeps getting poses, marked lost) meanwhile.
+    ///
+    /// The UI talks to it only through <see cref="Apply"/>, <see cref="Recenter"/>,
+    /// <see cref="RestartSource"/> and <see cref="GetSnapshot"/>, all thread safe.
     /// </summary>
     public sealed class TrackingEngine : IDisposable
     {
-        private const int TickMilliseconds = 8;
+        private const int IdleTickMilliseconds = 33;
         private const double SourceRetrySeconds = 5.0;
         private const double SettingsResendSeconds = 1.0;
         private const double GameTimeoutSeconds = 1.0;
-
-        [DllImport("winmm.dll")]
-        private static extern uint timeBeginPeriod(uint period);
-
-        [DllImport("winmm.dll")]
-        private static extern uint timeEndPeriod(uint period);
+        private const double StatusRefreshSeconds = 0.25;
+        private const double StatusLogSeconds = 10.0;
 
         private readonly AppLog _log;
         private readonly HeadTracker _tracker;
@@ -59,11 +61,18 @@ namespace HeadTracking.App
         private AppSettings _settings;
         private TrackingSettings _trackingSettings;
         private WebcamTrackerOptions _webcamOptions;
+
         private ITrackerSource _source;
         private string _sourceIdentity;
+        private Task<bool> _startTask;
+        private ITrackerSource _starting;
+        private Task _stopTask = Task.CompletedTask;
         private double _nextSourceAttempt;
         private double _nextHealthCheck;
         private string _lastSourceError;
+        private SourceStatus _status = new SourceStatus();
+        private double _nextStatusRefresh;
+
         private GameLink _link;
         private string _linkIdentity;
         private uint _settingsRevision;
@@ -77,6 +86,16 @@ namespace HeadTracking.App
         private long _ticks, _lastTicks;
         private double _lastTickRateTime, _tickRate;
 
+        // For the periodic status line.
+        private double _nextStatusLog;
+        private long _statusTicks, _statusTrackingTicks;
+        private long _lastSampleCount;
+        private double _lastLiveYaw, _lastLivePitch, _shakeSum;
+        private long _shakeCount;
+        private TimeSpan _lastCpu;
+        private double _lastCpuTime;
+        private double _cpuPercent;
+
         /// <summary>Raised on the engine thread when the in-game toggle key changed Enabled.</summary>
         public event Action<bool> EnabledToggledFromGame;
 
@@ -88,6 +107,9 @@ namespace HeadTracking.App
         }
 
         public WebcamSource Webcam => _source as WebcamSource;
+
+        /// <summary>Set by the UI: only make preview images while someone can see them.</summary>
+        public volatile bool PreviewVisible = true;
 
         public void Start()
         {
@@ -161,11 +183,6 @@ namespace HeadTracking.App
                 _link = null;
             }
 
-            if (Webcam != null)
-            {
-                Webcam.PreviewWanted = settings.ShowPreview;
-            }
-
             _settingsRevision++;
             _nextSettingsSend = 0;
         }
@@ -173,7 +190,12 @@ namespace HeadTracking.App
         /// <summary>The settings name no camera, or the camera already running, with nothing else changed.</summary>
         private bool SameCameraAsRunning(AppSettings settings)
         {
-            if (settings.Source != SourceKind.Webcam || !(_source is WebcamSource webcam))
+            return _source is WebcamSource webcam && SameCamera(settings, webcam);
+        }
+
+        private static bool SameCamera(AppSettings settings, WebcamSource webcam)
+        {
+            if (settings.Source != SourceKind.Webcam)
             {
                 return false;
             }
@@ -189,7 +211,6 @@ namespace HeadTracking.App
 
         private void RunGuarded()
         {
-            timeBeginPeriod(1);
             try
             {
                 _log.Info("Tracking engine started.");
@@ -201,8 +222,8 @@ namespace HeadTracking.App
             }
             finally
             {
-                timeEndPeriod(1);
                 StopSource();
+                _stopTask.Wait(3000);
                 _link?.Dispose();
             }
         }
@@ -210,12 +231,16 @@ namespace HeadTracking.App
         private void Run()
         {
             WaitHandle[] handles = new WaitHandle[2];
-            _lastTickRateTime = Clock.Now();
+            double now = Clock.Now();
+            _lastTickRateTime = now;
+            _nextStatusLog = now + StatusLogSeconds;
+            _lastCpuTime = now;
+            _lastCpu = Process.GetCurrentProcess().TotalProcessorTime;
             while (!_stopping)
             {
                 handles[0] = _wake;
                 handles[1] = _source?.NewData ?? _wake;
-                WaitHandle.WaitAny(handles, TickMilliseconds);
+                WaitHandle.WaitAny(handles, IdleTickMilliseconds);
                 if (_stopping)
                 {
                     break;
@@ -235,9 +260,15 @@ namespace HeadTracking.App
             EnsureLink();
             EnsureSource(now);
 
+            if (_source is WebcamSource webcam)
+            {
+                webcam.PreviewWanted = _settings.ShowPreview && PreviewVisible;
+            }
+
             PoseSnapshot snapshot = default;
             bool has = _source != null && _source.TryGetSnapshot(out snapshot);
             _tracker.Tick(has, snapshot, now, _trackingSettings);
+            MeasureShake();
 
             HandleGameCommands();
 
@@ -250,7 +281,6 @@ namespace HeadTracking.App
                     Enabled = _settings.Enabled,
                     Yaw = (float)_tracker.OutputYaw,
                     Pitch = (float)_tracker.OutputPitch,
-                    Zoom = (float)_tracker.OutputZoom,
                 });
 
                 if (now >= _nextSettingsSend)
@@ -261,6 +291,12 @@ namespace HeadTracking.App
             }
 
             _ticks++;
+            _statusTicks++;
+            if (_tracker.State == TrackState.Tracking)
+            {
+                _statusTrackingTicks++;
+            }
+
             if (now - _lastTickRateTime >= 1.0)
             {
                 _tickRate = (_ticks - _lastTicks) / (now - _lastTickRateTime);
@@ -268,7 +304,41 @@ namespace HeadTracking.App
                 _lastTickRateTime = now;
             }
 
+            if (now >= _nextStatusRefresh)
+            {
+                _nextStatusRefresh = now + StatusRefreshSeconds;
+                if (_source != null)
+                {
+                    _status = _source.GetStatus();
+                }
+                else if (_startTask != null)
+                {
+                    _status = new SourceStatus { Summary = "starting..." };
+                }
+            }
+
             PublishSnapshot(now);
+            MaybeLogStatus(now);
+        }
+
+        /// <summary>Average frame-to-frame change of the shaped output: the shake you would see.</summary>
+        private void MeasureShake()
+        {
+            if (_tracker.Samples == _lastSampleCount)
+            {
+                return;
+            }
+
+            if (_tracker.State == TrackState.Tracking && _lastSampleCount > 0)
+            {
+                double dy = _tracker.LiveYaw - _lastLiveYaw, dp = _tracker.LivePitch - _lastLivePitch;
+                _shakeSum += Math.Sqrt(dy * dy + dp * dp);
+                _shakeCount++;
+            }
+
+            _lastSampleCount = _tracker.Samples;
+            _lastLiveYaw = _tracker.LiveYaw;
+            _lastLivePitch = _tracker.LivePitch;
         }
 
         private void HandleGameCommands()
@@ -305,43 +375,50 @@ namespace HeadTracking.App
                 return;
             }
 
-            GameLink link = new GameLink(_settings.GamePort, _settings.StatusPort, _log);
-            if (link.Start())
-            {
-                _link = link;
-                _linkIdentity = _settings.LinkIdentity;
-            }
-            else
-            {
-                // Sending still works without the status listener; keep the link for poses.
-                _link = link;
-                _linkIdentity = _settings.LinkIdentity;
-            }
+            // Sending works even if the status port is taken; Start logs that case.
+            _link = new GameLink(_settings.GamePort, _settings.StatusPort, _log);
+            _link.Start();
+            _linkIdentity = _settings.LinkIdentity;
         }
 
         private void EnsureSource(double now)
         {
-            if (_source != null && now >= _nextHealthCheck)
+            if (_startTask != null)
             {
-                _nextHealthCheck = now + 1.0;
-                if (_source.GetStatus().NeedsRestart)
+                if (!_startTask.IsCompleted)
                 {
-                    _log.Warn(_source.Name + " has delivered nothing for a while; reopening it.");
-                    StopSource();
-                    _nextSourceAttempt = now + 1.0;
+                    return;
                 }
+
+                FinishStart(now);
             }
 
-            if (_source != null || now < _nextSourceAttempt)
+            if (_source != null)
+            {
+                if (now >= _nextHealthCheck)
+                {
+                    _nextHealthCheck = now + 1.0;
+                    if (_status.NeedsRestart)
+                    {
+                        _log.Warn(_source.Name + " has delivered nothing for a while; reopening it.");
+                        StopSource();
+                        _nextSourceAttempt = now + 1.0;
+                    }
+                }
+
+                return;
+            }
+
+            if (now < _nextSourceAttempt)
             {
                 return;
             }
 
             ITrackerSource source = _settings.Source == SourceKind.Webcam
-                ? new WebcamSource(_settings.ToWebcam(), () => _webcamOptions, _log) { PreviewWanted = _settings.ShowPreview }
+                ? new WebcamSource(_settings.ToWebcam(), () => _webcamOptions, _log)
                 : (ITrackerSource)new OpenTrackSource(_settings.OpenTrackPort, _log);
-
             _sourceIdentity = _settings.SourceIdentity;
+
             if (_settings.Source == SourceKind.Webcam && NativeLibraries.Error != null)
             {
                 Fail(source, now, NativeLibraries.Error);
@@ -349,22 +426,49 @@ namespace HeadTracking.App
             }
 
             _log.Info("Starting " + source.Name + ".");
-            if (source.Start())
+            _starting = source;
+            Task previousStop = _stopTask;
+            _startTask = Task.Run(() =>
             {
-                _source = source;
-                if (source is WebcamSource webcam)
-                {
-                    // An empty camera name means "the first one"; record which that was, so the
-                    // UI filling the name in afterwards is not taken for a change.
-                    _sourceIdentity = "webcam|" + webcam.EffectiveConfig.Identity;
-                }
+                // A camera that is still closing cannot be opened again yet.
+                previousStop.Wait(5000);
+                return source.Start();
+            });
+        }
 
-                _lastSourceError = null;
-                _log.Info(source.Name + " started: " + source.GetStatus().Summary);
+        private void FinishStart(double now)
+        {
+            ITrackerSource source = _starting;
+            bool ok = _startTask.Status == TaskStatus.RanToCompletion && _startTask.Result;
+            _startTask = null;
+            _starting = null;
+
+            if (!ok)
+            {
+                Fail(source, now, source.GetStatus().Error ?? "unknown error");
                 return;
             }
 
-            Fail(source, now, source.GetStatus().Error ?? "unknown error");
+            bool stillWanted = _sourceIdentity == _settings.SourceIdentity || (source is WebcamSource started && SameCamera(_settings, started));
+            if (!stillWanted)
+            {
+                // The settings changed while it was opening: close it and open the new one.
+                _log.Info(source.Name + " started, but the settings changed meanwhile; reopening.");
+                Dispose(source);
+                return;
+            }
+
+            _source = source;
+            _lastSourceError = null;
+            _status = source.GetStatus();
+            if (source is WebcamSource webcam)
+            {
+                // An empty camera name means "the first one"; record which that was, so the UI
+                // filling the name in afterwards is not taken for a change.
+                _sourceIdentity = "webcam|" + webcam.EffectiveConfig.Identity;
+            }
+
+            _log.Info(source.Name + " started: " + _status.Summary);
         }
 
         private void Fail(ITrackerSource source, double now, string error)
@@ -375,19 +479,9 @@ namespace HeadTracking.App
                 _log.Warn(source.Name + " did not start: " + error + " Retrying every " + SourceRetrySeconds + " s.");
             }
 
-            try
-            {
-                source.Dispose();
-            }
-            catch (Exception)
-            {
-            }
-
+            Dispose(source);
             _nextSourceAttempt = now + SourceRetrySeconds;
-            lock (_snapshotLock)
-            {
-                _snapshot.Source = new SourceStatus { Error = error, Summary = source.Name };
-            }
+            _status = new SourceStatus { Error = error, Summary = source.Name };
         }
 
         private void StopSource()
@@ -397,6 +491,17 @@ namespace HeadTracking.App
             if (source != null)
             {
                 _log.Info("Stopping " + source.Name + ".");
+                Dispose(source);
+            }
+        }
+
+        /// <summary>Closes a source on a worker task; the next start waits for it.</summary>
+        private void Dispose(ITrackerSource source)
+        {
+            Task previous = _stopTask;
+            _stopTask = Task.Run(() =>
+            {
+                previous.Wait(5000);
                 try
                 {
                     source.Dispose();
@@ -405,7 +510,7 @@ namespace HeadTracking.App
                 {
                     _log.Warn("Stopping " + source.Name + ": " + e.Message);
                 }
-            }
+            });
         }
 
         private void PublishSnapshot(double now)
@@ -421,22 +526,22 @@ namespace HeadTracking.App
 
             EngineSnapshot s = new EngineSnapshot
             {
-                SourceName = _source?.Name ?? (_settings.Source == SourceKind.Webcam ? "Webcam" : "OpenTrack"),
-                Source = _source?.GetStatus() ?? GetSnapshot().Source,
+                SourceName = _source?.Name ?? _starting?.Name ?? (_settings.Source == SourceKind.Webcam ? "Webcam" : "OpenTrack"),
+                Source = _status,
                 State = _tracker.State,
                 Loss = _tracker.Loss,
                 Enabled = _settings.Enabled,
                 RelativeYaw = _tracker.RelativeYaw,
                 RelativePitch = _tracker.RelativePitch,
-                RelativeZ = _tracker.RelativeZ,
                 OutputYaw = _tracker.OutputYaw,
                 OutputPitch = _tracker.OutputPitch,
-                OutputZoom = _tracker.OutputZoom,
                 RawYaw = _tracker.RawYaw,
                 RawPitch = _tracker.RawPitch,
                 RawZ = _tracker.RawZ,
+                Sigma = _tracker.LastSigma,
                 Centered = _tracker.IsCentered,
                 TicksPerSecond = _tickRate,
+                CpuPercent = _cpuPercent,
                 GameConnected = gameConnected,
                 GameStatus = status,
                 LinkError = _link?.BindError,
@@ -448,11 +553,60 @@ namespace HeadTracking.App
             }
         }
 
+        private void MaybeLogStatus(double now)
+        {
+            if (now < _nextStatusLog)
+            {
+                return;
+            }
+
+            double span = now - (_nextStatusLog - StatusLogSeconds);
+            _nextStatusLog = now + StatusLogSeconds;
+
+            TimeSpan cpu = Process.GetCurrentProcess().TotalProcessorTime;
+            _cpuPercent = (cpu - _lastCpu).TotalSeconds / Math.Max(0.001, now - _lastCpuTime) * 100.0;
+            _lastCpu = cpu;
+            _lastCpuTime = now;
+
+            SourceStatus src = _status;
+            string source;
+            if (_source is WebcamSource webcam)
+            {
+                source = "webcam " + src.CameraRate.ToString("0.0") + " fps from the camera, " + src.Rate.ToString("0.0") + " tracked, "
+                         + src.InferenceMs.ToString("0.0") + " ms/frame, uncertainty " + webcam.TakeAverageSigma().ToString("0.00") + " deg, brightness "
+                         + src.Brightness.ToString("0") + "/255";
+            }
+            else if (_source != null)
+            {
+                source = src.Summary;
+            }
+            else
+            {
+                source = _startTask != null ? "source starting" : "no source" + (src.Error != null ? " (" + src.Error + ")" : "");
+            }
+
+            double tracking = _statusTicks > 0 ? 100.0 * _statusTrackingTicks / _statusTicks : 0;
+            string shake = _shakeCount > 0 ? (_shakeSum / _shakeCount).ToString("0.00") + " deg/frame" : "n/a";
+            _statusTicks = _statusTrackingTicks = 0;
+            _shakeSum = 0;
+            _shakeCount = 0;
+
+            StatusMessage game = GetSnapshot().GameStatus;
+            string gameText = !_gameConnected ? "not connected"
+                : !game.InRaid ? "connected, in menus"
+                : "in raid, " + game.GameFps.ToString("0") + " fps, " + (game.PauseReasons == 0 ? "applying" : "paused: " + PauseFader.Describe((PauseReason)game.PauseReasons));
+
+            _log.Info("Status: " + _tracker.State + " " + tracking.ToString("0") + "% of the last " + span.ToString("0") + " s | " + source
+                      + " | output change " + shake + " | head yaw " + HeadTracker.Deg(_tracker.RelativeYaw) + " pitch " + HeadTracker.Deg(_tracker.RelativePitch)
+                      + " -> game yaw " + HeadTracker.Deg(_tracker.OutputYaw) + " pitch " + HeadTracker.Deg(_tracker.OutputPitch)
+                      + " | game " + gameText + " | engine " + _tickRate.ToString("0") + " ticks/s, app CPU " + _cpuPercent.ToString("0") + "% of one core");
+        }
+
         public void Dispose()
         {
             _stopping = true;
             _wake.Set();
-            _thread?.Join(3000);
+            _thread?.Join(4000);
         }
     }
 }

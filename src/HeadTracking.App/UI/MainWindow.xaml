@@ -22,12 +22,11 @@
                     </StackPanel>
                 </StackPanel>
                 <TextBlock DockPanel.Dock="Bottom" Text="{Binding Version}" Style="{StaticResource Hint}" Margin="22,0,0,16" />
-                <ListBox x:Name="Nav" Background="Transparent" BorderThickness="0" SelectedIndex="0"
+                <ListBox x:Name="Nav" Background="Transparent" BorderThickness="0" SelectedIndex="{Binding SelectedPage, Mode=TwoWay}"
                          ItemContainerStyle="{StaticResource NavItem}" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                     <ListBoxItem><StackPanel Orientation="Horizontal"><TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE80F;" Width="26" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" /><TextBlock Text="Overview" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" /></StackPanel></ListBoxItem>
                     <ListBoxItem><StackPanel Orientation="Horizontal"><TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE714;" Width="26" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" /><TextBlock Text="Tracking source" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" /></StackPanel></ListBoxItem>
                     <ListBoxItem><StackPanel Orientation="Horizontal"><TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE713;" Width="26" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" /><TextBlock Text="Response" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" /></StackPanel></ListBoxItem>
-                    <ListBoxItem><StackPanel Orientation="Horizontal"><TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE71E;" Width="26" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" /><TextBlock Text="Lean to zoom" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" /></StackPanel></ListBoxItem>
                     <ListBoxItem><StackPanel Orientation="Horizontal"><TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE7FC;" Width="26" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" /><TextBlock Text="In game" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" /></StackPanel></ListBoxItem>
                     <ListBoxItem><StackPanel Orientation="Horizontal"><TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE9D9;" Width="26" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" /><TextBlock Text="Diagnostics" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}" /></StackPanel></ListBoxItem>
                 </ListBox>
@@ -93,6 +92,13 @@
                                 </StackPanel>
                             </Border>
 
+                            <Border Style="{StaticResource Card}" Background="#33E3A44A" BorderBrush="{StaticResource WarnBrush}" Visibility="{Binding FrameRateWarningVisibility}">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE7BA;" Foreground="{StaticResource WarnBrush}" FontSize="18" Margin="0,0,12,0" VerticalAlignment="Top" />
+                                    <TextBlock Text="{Binding FrameRateWarning}" TextWrapping="Wrap" MaxWidth="760" />
+                                </StackPanel>
+                            </Border>
+
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
@@ -138,21 +144,6 @@
                                     </StackPanel>
                                 </Border>
                             </Grid>
-
-                            <Border Style="{StaticResource Card}">
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <StackPanel>
-                                        <TextBlock Text="Lean to zoom" Style="{StaticResource CardTitle}" />
-                                        <ui:ZoomMeter Height="56" Lean="{Binding HeadZ}" DeadZone="{Binding Settings.ZoomDeadZoneCm}" Full="{Binding Settings.ZoomFullCm}" Zoom="{Binding ZoomPercent}" />
-                                        <TextBlock Text="{Binding ZoomText}" Style="{StaticResource Hint}" />
-                                    </StackPanel>
-                                    <CheckBox Grid.Column="1" Style="{StaticResource Switch}" IsChecked="{Binding Settings.ZoomEnabled}" Content="On" VerticalAlignment="Top" Margin="20,0,0,0" />
-                                </Grid>
-                            </Border>
 
                             <Border Style="{StaticResource Card}">
                                 <StackPanel>
@@ -208,7 +199,11 @@
                                         <TextBlock Text="Picture format" FontWeight="SemiBold" Margin="0,0,0,6" />
                                         <ComboBox ItemsSource="{Binding Formats}" SelectedValuePath="Key" SelectedValue="{Binding SelectedFormat}" />
                                         <TextBlock Text="Automatic picks about 640 x 480 at the highest frame rate. More pixels do not track better; more frames per second do." Style="{StaticResource Hint}" Margin="0,6,0,0" />
-                                        <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.ShowPreview}" Content="Show the camera preview in this window" Margin="0,14,0,0" />
+                                        <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.KeepFullFrameRate}" Content="Keep the full frame rate in low light" Margin="0,14,0,0" />
+                                        <TextBlock Text="Turns off the camera's low light compensation. With it on, most webcams drop to 15 pictures a second in anything but bright light, and head tracking stutters. Off, the picture is a little darker; the tracker copes." Style="{StaticResource Hint}" Margin="52,0,0,6" />
+                                        <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.ShowPreview}" Content="Show the camera preview in this window" />
+                                        <Button Content="Camera settings..." HorizontalAlignment="Left" Margin="0,10,0,0" Command="{Binding CameraSettingsCommand}"
+                                                ToolTip="The camera driver's own dialog: exposure, gain, white balance. A shorter manual exposure also keeps the frame rate up." />
                                     </StackPanel>
                                 </Border>
 
@@ -219,7 +214,7 @@
                                         <ComboBox ItemsSource="{Binding Models}" DisplayMemberPath="Label" SelectedValuePath="Value" SelectedValue="{Binding Settings.Model}" />
                                         <TextBlock Text="OpenTrack's open-source neural head-pose models. Each frame costs a few milliseconds of CPU." Style="{StaticResource Hint}" Margin="0,6,0,12" />
                                         <ui:SettingSlider Label="CPU threads" Minimum="1" Maximum="4" Step="1" Format="0" Value="{Binding Settings.InferenceThreads}"
-                                                          Hint="Threads the networks may use. 2 is plenty; 1 leaves the most for the game." />
+                                                          Hint="Threads the networks may use. 1 is plenty (about 2 ms a frame) and leaves the most for the game." />
                                         <ui:SettingSlider Label="Camera field of view" Minimum="40" Maximum="110" Step="1" Format="0" Unit="&#x00B0; diagonal" Value="{Binding Settings.CameraFov}"
                                                           Hint="From the camera's spec sheet (Logitech C920: 78, C270: 55, laptop cameras about 70). Only fine-tunes distance and off-centre angles." />
                                         <ui:SettingSlider Label="Face detection confidence" Minimum="0.2" Maximum="0.9" Step="0.05" Format="0.00" Value="{Binding Settings.DetectionThreshold}"
@@ -289,45 +284,30 @@
                             </Grid>
                             <Border Style="{StaticResource Card}">
                                 <StackPanel>
-                                    <TextBlock Text="Smoothing" Style="{StaticResource CardTitle}" />
+                                    <TextBlock Text="Steadiness and smoothing" Style="{StaticResource CardTitle}" />
                                     <Grid>
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*" />
                                             <ColumnDefinition Width="28" />
                                             <ColumnDefinition Width="*" />
                                         </Grid.ColumnDefinitions>
-                                        <ui:SettingSlider Label="Smoothing" Minimum="0" Maximum="1" Step="0.05" Format="0.00" Value="{Binding Settings.Smoothing}"
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <ui:SettingSlider Label="Steadiness" Minimum="0" Maximum="3" Step="0.1" Format="0.0" Value="{Binding Settings.Steadiness}"
+                                                          Hint="Holds the view still against the camera's frame-to-frame noise, scaled by how sure the tracker is about each frame. 0 is off; 1 is OpenTrack's default. Webcam only." />
+                                        <ui:SettingSlider Grid.Column="2" Label="Motion smoothing" Minimum="0" Maximum="200" Step="5" Format="0" Unit="ms" Value="{Binding Settings.MotionSmoothingMs}"
+                                                          Hint="In the game, glides between camera updates at your frame rate instead of stepping 30 times a second. Higher is smoother, with that much more delay." />
+                                        <ui:SettingSlider Grid.Row="1" Label="Smoothing" Minimum="0" Maximum="1" Step="0.05" Format="0.00" Value="{Binding Settings.Smoothing}"
                                                           Hint="Removes jitter while your head is still. 0 is off." />
-                                        <ui:SettingSlider Grid.Column="2" Label="Fast movement response" Minimum="0" Maximum="1" Step="0.05" Format="0.00" Value="{Binding Settings.FastMoveResponse}"
+                                        <ui:SettingSlider Grid.Row="1" Grid.Column="2" Label="Fast movement response" Minimum="0" Maximum="1" Step="0.05" Format="0.00" Value="{Binding Settings.FastMoveResponse}"
                                                           Hint="How much quick turns cut through the smoothing. Higher is snappier." />
                                     </Grid>
                                     <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.AutoCenterOnStart}" Content="Centre automatically when tracking starts" />
                                 </StackPanel>
                             </Border>
                             <Button Content="Reset this page to defaults" HorizontalAlignment="Left" Command="{Binding ResetResponseCommand}" />
-                        </StackPanel>
-                    </ScrollViewer>
-                </TabItem>
-
-                <!-- ===== Zoom ============================================================ -->
-                <TabItem>
-                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="28,22">
-                        <StackPanel MaxWidth="820" HorizontalAlignment="Left">
-                            <TextBlock Text="Lean to zoom" Style="{StaticResource PageTitle}" />
-                            <TextBlock Text="Lean toward the screen to narrow the field of view a little, as if you looked closer. Sitting back undoes it. Never active while aiming down sights; the scope owns the view then." Style="{StaticResource PageSubtitle}" />
-                            <Border Style="{StaticResource Card}">
-                                <StackPanel>
-                                    <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.ZoomEnabled}" Content="Lean to zoom" Margin="0,0,0,14" />
-                                    <ui:ZoomMeter Height="60" Lean="{Binding HeadZ}" DeadZone="{Binding Settings.ZoomDeadZoneCm}" Full="{Binding Settings.ZoomFullCm}" Zoom="{Binding ZoomPercent}" />
-                                    <TextBlock Text="{Binding ZoomText}" Style="{StaticResource Hint}" Margin="0,0,0,12" />
-                                    <ui:SettingSlider Label="Start zooming after leaning in" Minimum="0" Maximum="10" Step="0.5" Format="0.0" Unit="cm" Value="{Binding Settings.ZoomDeadZoneCm}" />
-                                    <ui:SettingSlider Label="Full zoom at" Minimum="3" Maximum="25" Step="0.5" Format="0.0" Unit="cm" Value="{Binding Settings.ZoomFullCm}" />
-                                    <ui:SettingSlider Label="Zoom amount" Minimum="2" Maximum="35" Step="1" Format="0" Unit="&#x00B0; less field of view" Value="{Binding Settings.ZoomMaxFov}"
-                                                      Hint="At full zoom. With a 75&#x00B0; field of view, 15 less is about 1.3x magnification." />
-                                </StackPanel>
-                            </Border>
-                            <TextBlock Text="Distance comes from the size of your face in the camera image; OpenTrack sources send it too. Centre (Recenter) sets the zero point." Style="{StaticResource Hint}" Margin="0,0,0,14" />
-                            <Button Content="Reset this page to defaults" HorizontalAlignment="Left" Command="{Binding ResetZoomCommand}" />
                         </StackPanel>
                     </ScrollViewer>
                 </TabItem>

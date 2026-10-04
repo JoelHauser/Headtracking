@@ -4,7 +4,7 @@ using HeadTracking.Tracking;
 namespace HeadTracking.Tests;
 
 /// <summary>What the app-side tracker added over the 0.1.0 plugin: auto-centre, explicit
-/// validity, curves, zoom, reset.</summary>
+/// validity, curves, reset, steadiness, per-sample filtering.</summary>
 public class TrackerFeatureTests
 {
     private static TrackingSettings Sharp(Action<TrackingSettings>? change = null)
@@ -24,7 +24,6 @@ public class TrackerFeatureTests
         Assert.True(rig.Tracker.IsCentered);
         Assert.Equal(4, rig.Tracker.CenterYaw, 6);
         Assert.Equal(-12, rig.Tracker.CenterPitch, 6);
-        Assert.Equal(55, rig.Tracker.CenterZ, 6);
         Assert.True(rig.Tracker.OutputYaw == 0 && rig.Tracker.OutputPitch == 0);
 
         rig.Run(0.2, () => rig.SendWebcam(14, -12, 55, true));
@@ -92,47 +91,8 @@ public class TrackerFeatureTests
         Assert.Equal(-8.0, rig.Tracker.OutputPitch, 6);
     }
 
-    [Theory]
-    [InlineData(1.0, 0.0)]    // inside the 2 cm dead zone
-    [InlineData(6.0, 0.5)]    // halfway between 2 and 10
-    [InlineData(10.0, 1.0)]
-    [InlineData(25.0, 1.0)]
-    [InlineData(-8.0, 0.0)]   // leaning back never zooms
-    public void LeaningInZooms(double leanInCm, double expected)
-    {
-        Assert.Equal(expected, HeadTracker.ZoomShape(leanInCm, 2, 10), 6);
-    }
 
-    [Fact]
-    public void ZoomFollowsDistanceFromTheCentreAndIsHeldAndReturnedLikeTheAngles()
-    {
-        var rig = new Rig(Sharp(s => s.ZoomEnabled = true));
-        rig.Run(0.2, () => rig.SendWebcam(0, 0, 60, true));
-        Assert.Equal(0.0, rig.Tracker.OutputZoom);
 
-        // 6 cm closer than the centre distance: halfway.
-        rig.Run(0.2, () => rig.SendWebcam(0, 0, 54, true));
-        Assert.Equal(0.5, rig.Tracker.OutputZoom, 6);
-
-        // Face lost: zoom is held (hold 0.5 s), then eases to nothing, never jumping.
-        var zooms = new List<double>();
-        rig.Run(2.0, () => { zooms.Add(rig.Tracker.OutputZoom); rig.SendWebcam(0, 0, 54, false); });
-        zooms.Add(rig.Tracker.OutputZoom);
-
-        Assert.All(zooms.Skip(1).Take(25), z => Assert.Equal(0.5, z, 6));
-        Assert.Equal(0.0, zooms[^1]);
-        Assert.True(zooms.Zip(zooms.Skip(1), (a, b) => Math.Abs(a - b)).Max() < 0.05);
-    }
-
-    [Fact]
-    public void ZoomIsOffUnlessEnabled()
-    {
-        var rig = new Rig(Sharp());
-        rig.Run(0.2, () => rig.SendWebcam(0, 0, 60, true));
-        rig.Run(0.2, () => rig.SendWebcam(0, 0, 40, true));
-
-        Assert.Equal(0.0, rig.Tracker.OutputZoom);
-    }
 
     [Fact]
     public void ResetForgetsTheCentreForANewSource()
@@ -155,7 +115,7 @@ public class LinkProtocolTests
     [Fact]
     public void PoseRoundTrips()
     {
-        var pose = new PoseMessage { Sequence = 77, State = LinkTrackState.Holding, Enabled = true, Yaw = -12.5f, Pitch = 3.25f, Zoom = 0.4f };
+        var pose = new PoseMessage { Sequence = 77, State = LinkTrackState.Holding, Enabled = true, Yaw = -12.5f, Pitch = 3.25f };
         byte[] bytes = LinkProtocol.Encode(pose);
 
         Assert.True(LinkProtocol.TryReadHeader(bytes, bytes.Length, out LinkMessageType type));
@@ -169,8 +129,8 @@ public class LinkProtocolTests
     {
         var settings = new GameSettingsMessage
         {
-            Revision = 9, PauseWhileAiming = false, PauseWhenCursorVisible = true, PauseWhenUnfocused = false, ZoomEnabled = true,
-            PauseFadeMs = 120, ZoomMaxFovReduction = 22, LinkTimeoutMs = 500, ToggleKey = 290, ToggleModifiers = KeyModifiers.Shift,
+            Revision = 9, PauseWhileAiming = false, PauseWhenCursorVisible = true, PauseWhenUnfocused = false,
+            PauseFadeMs = 120, MotionSmoothingMs = 85, LinkTimeoutMs = 500, ToggleKey = 290, ToggleModifiers = KeyModifiers.Shift,
             RecenterKey = 277, RecenterModifiers = KeyModifiers.Control | KeyModifiers.Alt,
         };
         byte[] bytes = LinkProtocol.Encode(settings);
@@ -186,7 +146,7 @@ public class LinkProtocolTests
         var status = new StatusMessage
         {
             Sequence = 3, InRaid = true, Applying = true, HasSettings = true, PauseReasons = 16, AppliedYaw = 4, AppliedPitch = -2,
-            AppliedFovReduction = 7.5f, BaseFov = 75, HookMicros = 6.5f, ModVersion = "0.2.0",
+            HookMicros = 6.5f, GameFps = 143.5f, ModVersion = "0.3.0",
         };
         byte[] bytes = LinkProtocol.Encode(status);
 
@@ -203,6 +163,14 @@ public class LinkProtocolTests
             Assert.True(LinkProtocol.TryDecode(bytes, bytes.Length, out LinkCommand back));
             Assert.Equal(command, back);
         }
+    }
+
+    [Fact]
+    public void AnOlderProtocolVersionIsRejected()
+    {
+        byte[] pose = LinkProtocol.Encode(new PoseMessage { Yaw = 1 });
+        pose[4] = 1;
+        Assert.False(LinkProtocol.TryReadHeader(pose, pose.Length, out _));
     }
 
     [Fact]

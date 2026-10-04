@@ -90,6 +90,13 @@ namespace HeadTracking.App.Webcam
         public RectF Box;
         public float CenterX, CenterY;
         public float Size;
+
+        /// <summary>
+        /// One-sigma rotation uncertainty in degrees, from the network's rotaxis_scales_tril
+        /// (the Cholesky factor L of the rotation-vector covariance: sigma^2 = trace(L L^T) / 3).
+        /// 0 when the model has no such output.
+        /// </summary>
+        public float RotationSigmaDegrees;
     }
 
     /// <summary>
@@ -106,7 +113,8 @@ namespace HeadTracking.App.Webcam
         private readonly float[] _input;
         private readonly byte[] _patch;
         private readonly DenseTensor<float> _tensor;
-        private readonly string[] _outputs = { "pos_size", "quat", "box" };
+        private readonly string[] _outputs;
+        private readonly bool _hasRotationUncertainty;
 
         public int InputWidth { get; }
         public int InputHeight { get; }
@@ -128,6 +136,10 @@ namespace HeadTracking.App.Webcam
 
             InputHeight = dims[2];
             InputWidth = dims[3];
+            _hasRotationUncertainty = _session.OutputMetadata.ContainsKey("rotaxis_scales_tril");
+            _outputs = _hasRotationUncertainty
+                ? new[] { "pos_size", "quat", "box", "rotaxis_scales_tril" }
+                : new[] { "pos_size", "quat", "box" };
             foreach (string name in _outputs)
             {
                 if (!_session.OutputMetadata.ContainsKey(name))
@@ -168,7 +180,7 @@ namespace HeadTracking.App.Webcam
             ImageOps.NormalizeBrightness(_patch, _patch.Length, _input);
 
             Stopwatch watch = Stopwatch.StartNew();
-            float[] posSize, quat, outBox;
+            float[] posSize, quat, outBox, rotationTril = null;
             try
             {
                 using (IDisposableReadOnlyCollection<DisposableNamedOnnxValue> results =
@@ -177,6 +189,10 @@ namespace HeadTracking.App.Webcam
                     posSize = Get(results, "pos_size");
                     quat = Get(results, "quat");
                     outBox = Get(results, "box");
+                    if (_hasRotationUncertainty)
+                    {
+                        rotationTril = Get(results, "rotaxis_scales_tril");
+                    }
                 }
             }
             catch (OnnxRuntimeException)
@@ -202,12 +218,25 @@ namespace HeadTracking.App.Webcam
                 CenterY = cy + half * posSize[1],
                 Size = half * posSize[2],
                 Box = new RectF(cx + half * outBox[0], cy + half * outBox[1], half * (outBox[2] - outBox[0]), half * (outBox[3] - outBox[1])),
+                RotationSigmaDegrees = rotationTril == null ? 0f : RotationSigma(rotationTril),
             };
         }
 
         public void Dispose()
         {
             _session.Dispose();
+        }
+
+        /// <summary>sqrt(trace(L L^T) / 3) in degrees: the RMS of the three axis deviations.</summary>
+        internal static float RotationSigma(float[] tril)
+        {
+            double sum = 0;
+            for (int i = 0; i < tril.Length && i < 9; i++)
+            {
+                sum += tril[i] * (double)tril[i];
+            }
+
+            return (float)(Math.Sqrt(sum / 3.0) * 180.0 / Math.PI);
         }
 
         private static float[] Get(IDisposableReadOnlyCollection<DisposableNamedOnnxValue> results, string name)

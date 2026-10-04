@@ -62,6 +62,9 @@ namespace HeadTracking.App.UI
         private long _logVersion = -1;
         private bool _loadingCameras;
         private WriteableBitmap _previewBitmap;
+        private LogLine _lastLogLine;
+        private int _selectedPage;
+        private bool _minimized;
 
         public event PropertyChangedEventHandler PropertyChanged;
 
@@ -78,7 +81,7 @@ namespace HeadTracking.App.UI
             RefreshCamerasCommand = new RelayCommand(() => LoadCameras(true));
             RestartSourceCommand = new RelayCommand(() => _engine.RestartSource());
             ResetResponseCommand = new RelayCommand(() => Settings.ResetResponse());
-            ResetZoomCommand = new RelayCommand(() => Settings.ResetZoom());
+            CameraSettingsCommand = new RelayCommand(OpenCameraSettings);
             ResetInGameCommand = new RelayCommand(() => Settings.ResetInGame());
             OpenLogFolderCommand = new RelayCommand(() => Open(AppPaths.LogDirectory));
             CopyLogCommand = new RelayCommand(() =>
@@ -100,7 +103,8 @@ namespace HeadTracking.App.UI
                 Settings.Save(AppPaths.SettingsFile, _log);
             };
 
-            _timer = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(33) };
+            // 20 Hz is plenty for numbers and pads; skipped entirely while minimized.
+            _timer = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(50) };
             _timer.Tick += (s, e) => Refresh();
             _timer.Start();
 
@@ -115,7 +119,72 @@ namespace HeadTracking.App.UI
         public ICommand RefreshCamerasCommand { get; }
         public ICommand RestartSourceCommand { get; }
         public ICommand ResetResponseCommand { get; }
-        public ICommand ResetZoomCommand { get; }
+        public ICommand CameraSettingsCommand { get; }
+
+        /// <summary>The window handle, for the camera settings dialog's owner. Set by the window.</summary>
+        public Func<IntPtr> OwnerHandle { get; set; }
+
+        /// <summary>The page shown (bound to the navigation list). Drives what gets refreshed.</summary>
+        public int SelectedPage
+        {
+            get => _selectedPage;
+            set
+            {
+                _selectedPage = value;
+                UpdatePreviewVisibility();
+                Raise();
+                if (value == DiagnosticsPage)
+                {
+                    RefreshLog();
+                }
+            }
+        }
+
+        /// <summary>Set by the window: nothing is refreshed or previewed while minimized.</summary>
+        public bool Minimized
+        {
+            get => _minimized;
+            set
+            {
+                _minimized = value;
+                UpdatePreviewVisibility();
+            }
+        }
+
+        private const int OverviewPage = 0;
+        private const int DiagnosticsPage = 4;
+
+        private void UpdatePreviewVisibility()
+        {
+            _engine.PreviewVisible = !_minimized && _selectedPage == OverviewPage;
+        }
+
+        private void OpenCameraSettings()
+        {
+            var webcam = _engine.Webcam;
+            if (webcam == null)
+            {
+                _log.Warn("Camera settings: no camera is open.");
+                return;
+            }
+
+            IntPtr owner = OwnerHandle?.Invoke() ?? IntPtr.Zero;
+            _log.Info("Opening the camera's settings dialog.");
+            Task.Run(() =>
+            {
+                try
+                {
+                    if (!webcam.ShowCameraSettings(owner))
+                    {
+                        _log.Warn("This camera has no settings dialog.");
+                    }
+                }
+                catch (Exception e)
+                {
+                    _log.Warn("Camera settings dialog failed: " + e.Message);
+                }
+            });
+        }
         public ICommand ResetInGameCommand { get; }
         public ICommand OpenLogFolderCommand { get; }
         public ICommand CopyLogCommand { get; }
@@ -258,13 +327,12 @@ namespace HeadTracking.App.UI
         public double HeadY { get; private set; }
         public double OutX { get; private set; }
         public double OutY { get; private set; }
-        public double HeadZ { get; private set; }
-        public double ZoomPercent { get; private set; }
         public bool Tracking { get; private set; }
         public string HeadText { get; private set; } = "";
         public string OutText { get; private set; } = "";
-        public string ZoomText { get; private set; } = "";
         public string RatesText { get; private set; } = "";
+        public string FrameRateWarning { get; private set; }
+        public Visibility FrameRateWarningVisibility => string.IsNullOrEmpty(FrameRateWarning) ? Visibility.Collapsed : Visibility.Visible;
 
         public ImageSource PreviewImage => _previewBitmap;
         public double PreviewWidth { get; private set; } = 320;
@@ -287,6 +355,11 @@ namespace HeadTracking.App.UI
 
         private void Refresh()
         {
+            if (_minimized)
+            {
+                return;
+            }
+
             EngineSnapshot s = _engine.GetSnapshot();
             Live = s;
 
@@ -315,7 +388,7 @@ namespace HeadTracking.App.UI
                 TrackerBrush = Brush("WarnBrush");
             }
 
-            TrackerDetail = s.SourceName + (s.Source != null && s.Source.Rate > 0 ? " · " + s.Source.Rate.ToString("0") + " fps" : "")
+            TrackerDetail = s.SourceName + (s.Source != null && s.Source.Rate > 0 ? " · " + s.Source.Rate.ToString("0") + " poses/s" : "")
                             + (s.Source != null && s.Source.InferenceMs > 0 ? " · " + s.Source.InferenceMs.ToString("0.0") + " ms per frame" : "");
 
             // Game status
@@ -338,7 +411,7 @@ namespace HeadTracking.App.UI
                 GameBrush = reasons == PauseReason.None ? Brush("GoodBrush") : Brush("WarnBrush");
                 GameDetail = reasons == PauseReason.None
                     ? "View offset yaw " + s.GameStatus.AppliedYaw.ToString("+0.0;-0.0;0.0") + "°, pitch " + s.GameStatus.AppliedPitch.ToString("+0.0;-0.0;0.0") + "°"
-                      + (s.GameStatus.AppliedFovReduction > 0.05 ? ", zoom -" + s.GameStatus.AppliedFovReduction.ToString("0.0") + "° FOV" : "")
+                      + " · game " + s.GameStatus.GameFps.ToString("0") + " fps"
                     : PauseFader.Describe(reasons);
             }
 
@@ -347,18 +420,28 @@ namespace HeadTracking.App.UI
             HeadY = s.RelativePitch;
             OutX = -s.OutputYaw;
             OutY = -s.OutputPitch;
-            HeadZ = -s.RelativeZ;
-            ZoomPercent = s.OutputZoom * 100;
             HeadText = "Head  yaw " + s.RelativeYaw.ToString("+0.0;-0.0;0.0") + "°   pitch " + s.RelativePitch.ToString("+0.0;-0.0;0.0") + "°";
             OutText = "In game  yaw " + (-s.OutputYaw).ToString("+0.0;-0.0;0.0") + "°   pitch " + (-s.OutputPitch).ToString("+0.0;-0.0;0.0") + "°";
-            ZoomText = "Lean " + (-s.RelativeZ).ToString("+0.0;-0.0;0.0") + " cm   zoom " + ZoomPercent.ToString("0") + "%";
             RatesText = "Engine " + s.TicksPerSecond.ToString("0") + " ticks/s"
                         + (s.Source != null && s.Source.CameraRate > 0 ? " · camera " + s.Source.CameraRate.ToString("0") + " fps" : "")
                         + (s.Source != null && s.Source.Brightness >= 0 ? " · picture brightness " + s.Source.Brightness.ToString("0") + "/255" + (s.Source.Brightness < 40 ? " (too dark)" : "") : "")
                         + (s.GameConnected ? " · game hook " + s.GameStatus.HookMicros.ToString("0.0") + " µs" : "");
 
-            RefreshPreview();
-            RefreshLog();
+            double cameraFps = s.Source?.CameraRate ?? 0;
+            FrameRateWarning = Settings.Source == SourceKind.Webcam && cameraFps > 1 && cameraFps < 25
+                ? "The camera delivers only " + cameraFps.ToString("0") + " pictures a second, so head tracking updates that often. Webcams halve their frame rate in dim light: "
+                  + "add light in front of you, keep \"Keep the full frame rate\" on (Tracking source page), or lower the exposure in Camera settings."
+                : null;
+
+            if (_selectedPage == OverviewPage)
+            {
+                RefreshPreview();
+            }
+
+            if (_selectedPage == DiagnosticsPage)
+            {
+                RefreshLog();
+            }
 
             Raise(nameof(Live));
             Raise(nameof(Tracking));
@@ -374,12 +457,11 @@ namespace HeadTracking.App.UI
             Raise(nameof(HeadY));
             Raise(nameof(OutX));
             Raise(nameof(OutY));
-            Raise(nameof(HeadZ));
-            Raise(nameof(ZoomPercent));
             Raise(nameof(HeadText));
             Raise(nameof(OutText));
-            Raise(nameof(ZoomText));
             Raise(nameof(RatesText));
+            Raise(nameof(FrameRateWarning));
+            Raise(nameof(FrameRateWarningVisibility));
         }
 
         private void RefreshPreview()
@@ -418,6 +500,7 @@ namespace HeadTracking.App.UI
             Raise(nameof(FaceBoxVisibility));
         }
 
+        /// <summary>Appends only the lines added since last time, keeping the newest 300.</summary>
         private void RefreshLog()
         {
             long version = _log.Version;
@@ -428,11 +511,21 @@ namespace HeadTracking.App.UI
 
             _logVersion = version;
             List<LogLine> lines = _log.Snapshot();
-            int start = Math.Max(0, lines.Count - 300);
-            LogLines.Clear();
+            int start = _lastLogLine == null ? -1 : lines.LastIndexOf(_lastLogLine);
+            start = start < 0 ? Math.Max(0, lines.Count - 300) : start + 1;
             for (int i = start; i < lines.Count; i++)
             {
                 LogLines.Add(lines[i]);
+            }
+
+            while (LogLines.Count > 300)
+            {
+                LogLines.RemoveAt(0);
+            }
+
+            if (lines.Count > 0)
+            {
+                _lastLogLine = lines[lines.Count - 1];
             }
         }
 

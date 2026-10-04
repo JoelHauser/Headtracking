@@ -154,6 +154,8 @@ namespace HeadTracking.App.UI
         public double Current { get => (double)GetValue(CurrentProperty); set => SetValue(CurrentProperty, value); }
 
         private static readonly Pen CurvePen = Paint.Pen(Paint.Accent, 2);
+        private string _curveKey;
+        private StreamGeometry _curve;
         private static readonly Pen GridPen = Paint.Pen(Paint.Grid, 1);
         private static readonly Pen MarkerPen = Paint.Pen(Paint.Good, 1, true);
 
@@ -191,7 +193,10 @@ namespace HeadTracking.App.UI
             double deadPx = plot.Width * Math.Min(1, DeadZone / xRange);
             dc.DrawRectangle(Paint.DeadZone, null, new Rect(plot.Left, plot.Top, deadPx, plot.Height));
 
-            StreamGeometry geometry = new StreamGeometry();
+            // The curve only changes with the settings; the marker moves 20 times a second.
+            string key = plot + "|" + DeadZone + "|" + Gain + "|" + max + "|" + Curve;
+            StreamGeometry geometry = _curveKey == key ? _curve : new StreamGeometry();
+            if (_curveKey != key)
             using (StreamGeometryContext g = geometry.Open())
             {
                 const int steps = 120;
@@ -207,65 +212,14 @@ namespace HeadTracking.App.UI
 
             geometry.Freeze();
             dc.DrawGeometry(null, CurvePen, geometry);
+            _curveKey = key;
+            _curve = geometry;
 
             double current = Math.Min(xRange, Math.Abs(Current));
             double cx = plot.Left + plot.Width * current / xRange;
             double cy = plot.Bottom - plot.Height * Math.Min(1, HeadTracker.Shape(current, DeadZone, Gain, max, Curve) / yRange);
             dc.DrawLine(MarkerPen, new Point(cx, plot.Bottom), new Point(cx, cy));
             dc.DrawEllipse(Paint.Good, null, new Point(cx, cy), 4.5, 4.5);
-        }
-    }
-
-    /// <summary>Lean toward the screen, in cm from centre, against the zoom dead zone and full-zoom distance.</summary>
-    public sealed class ZoomMeter : FrameworkElement
-    {
-        public static readonly DependencyProperty LeanProperty = Reg(nameof(Lean), 0.0);
-        public static readonly DependencyProperty DeadZoneProperty = Reg(nameof(DeadZone), 2.0);
-        public static readonly DependencyProperty FullProperty = Reg(nameof(Full), 10.0);
-        public static readonly DependencyProperty ZoomProperty = Reg(nameof(Zoom), 0.0);
-
-        public double Lean { get => (double)GetValue(LeanProperty); set => SetValue(LeanProperty, value); }
-        public double DeadZone { get => (double)GetValue(DeadZoneProperty); set => SetValue(DeadZoneProperty, value); }
-        public double Full { get => (double)GetValue(FullProperty); set => SetValue(FullProperty, value); }
-        public double Zoom { get => (double)GetValue(ZoomProperty); set => SetValue(ZoomProperty, value); }
-
-        private static readonly Pen TickPen = Paint.Pen(Paint.Axis, 1);
-        private static readonly Pen MarkPen = Paint.Pen(Paint.Accent, 2);
-
-        private static DependencyProperty Reg(string name, double value)
-        {
-            return DependencyProperty.Register(name, typeof(double), typeof(ZoomMeter), new FrameworkPropertyMetadata(value, FrameworkPropertyMetadataOptions.AffectsRender));
-        }
-
-        protected override void OnRender(DrawingContext dc)
-        {
-            double w = ActualWidth, h = ActualHeight;
-            if (w < 60 || h < 30)
-            {
-                return;
-            }
-
-            double min = -5, max = Math.Max(Full + 5, 15);
-            Rect bar = new Rect(8, h / 2 - 6, w - 16, 12);
-            Func<double, double> X = cm => bar.Left + bar.Width * (cm - min) / (max - min);
-
-            dc.DrawRoundedRectangle(Paint.Background, Paint.Pen(Paint.Grid, 1), bar, 6, 6);
-            dc.DrawRectangle(Paint.DeadZone, null, new Rect(X(0), bar.Top, Math.Max(0, X(DeadZone) - X(0)), bar.Height));
-            dc.DrawRoundedRectangle(Paint.AccentFaint, null, new Rect(X(DeadZone), bar.Top, Math.Max(0, X(Full) - X(DeadZone)), bar.Height), 2, 2);
-
-            foreach (double cm in new[] { 0.0, DeadZone, Full })
-            {
-                dc.DrawLine(TickPen, new Point(X(cm), bar.Top - 4), new Point(X(cm), bar.Bottom + 4));
-            }
-
-            Paint.Label(dc, "centre", new Point(X(0) - 16, bar.Bottom + 4), Paint.Text, 10);
-            Paint.Label(dc, "full zoom", new Point(X(Full) - 20, bar.Bottom + 4), Paint.Text, 10);
-            Paint.Label(dc, "lean back", new Point(bar.Left, bar.Top - 18), Paint.Text, 10);
-            Paint.Label(dc, "lean in", new Point(bar.Right, bar.Top - 18), Paint.Text, 10, true);
-
-            double lx = X(Math.Max(min, Math.Min(max, Lean)));
-            dc.DrawLine(MarkPen, new Point(lx, bar.Top - 6), new Point(lx, bar.Bottom + 6));
-            dc.DrawEllipse(Zoom > 0 ? Paint.Accent : Paint.Muted, null, new Point(lx, h / 2), 6, 6);
         }
     }
 }

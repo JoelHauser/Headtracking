@@ -28,8 +28,8 @@ namespace HeadTracking.Tracking
     }
 
     /// <summary>
-    /// Everything the tracker reads from the settings. Copied in by the engine each tick, so a
-    /// change in the app applies at once. Times are seconds, angles degrees, distances cm.
+    /// Everything the tracker reads from the settings. Copied in by the engine, so a change in the
+    /// app applies at once. Times are seconds, angles degrees.
     /// </summary>
     public sealed class TrackingSettings
     {
@@ -51,20 +51,18 @@ namespace HeadTracking.Tracking
         public bool InvertYaw;
         public bool InvertPitch;
 
+        /// <summary>
+        /// Uncertainty-scaled soft dead zone on each new pose, in multiples of the network's own
+        /// per-frame uncertainty (OpenTrack's deadzone_size). 0 is off. Only for sources that
+        /// report an uncertainty (the built-in webcam tracker).
+        /// </summary>
+        public double Steadiness = 1.0;
+
         /// <summary>0 off, 1 heaviest. See <see cref="HeadTracker.MinCutoffFor"/>.</summary>
         public double Smoothing = 0.5;
 
         /// <summary>0 to 1. How much fast head movement cuts through the smoothing.</summary>
         public double FastMoveResponse = 0.5;
-
-        /// <summary>Lean toward the screen to zoom.</summary>
-        public bool ZoomEnabled;
-
-        /// <summary>Leaning in less than this, in cm from centre, does nothing.</summary>
-        public double ZoomDeadZone = 2.0;
-
-        /// <summary>Leaning in this far, in cm from centre, is full zoom.</summary>
-        public double ZoomFullDistance = 10.0;
 
         /// <summary>Take the first good pose as centre. Needed for a webcam, whose angles are absolute.</summary>
         public bool AutoCenterOnStart = true;
@@ -85,40 +83,49 @@ namespace HeadTracking.Tracking
     }
 
     /// <summary>
-    /// Turns a head pose into the freelook (and zoom) to apply in game, and owns what happens
-    /// when tracking is lost. Pure: no clock of its own, so the tests drive it with made-up times.
-    /// One thread at a time.
+    /// Turns a head pose into the freelook to apply in game, and owns what happens when tracking
+    /// is lost. Pure: no clock of its own, so the tests drive it with made-up times. One thread.
     ///
-    /// Per tick: newest pose -> minus centre -> 1-euro smoothing -> dead zone -> gain and curve
-    /// -> cap -> game sign convention -> loss handling (hold, ease to centre, cross-fade back).
+    /// Per new pose (once per camera frame, not per tick: filters need the real time between
+    /// samples, and running them on a held value makes every new frame look like a jerk):
+    ///   minus centre -> steadiness (uncertainty-scaled soft dead zone) -> 1-euro smoothing ->
+    ///   dead zone -> gain and curve -> cap -> game sign convention.
+    /// Per tick: loss handling (hold, ease to centre, cross-fade back), which is time based.
+    /// The plugin then follows the result smoothly at the game's frame rate.
     /// </summary>
     public sealed class HeadTracker
     {
         /// <summary>
         /// Head pose to game sign. EFT: Player.Look does <c>_horizontal -= mouse X</c>, so positive
-        /// yaw is left; its look-down limits read as positive pitch being down. OpenTrack (and the
-        /// built-in webcam tracker, which follows OpenTrack's conventions): yaw positive right,
-        /// pitch positive up. Inferred, not yet seen in game, hence the invert settings.
+        /// yaw is left; its look-down limits read as positive pitch being down. The trackers
+        /// (OpenTrack's convention): yaw positive = head turned to the user's right (shown on still
+        /// portraits), pitch positive up. Hence both negated; the invert settings flip each.
         /// </summary>
         public const double YawSign = -1.0;
         public const double PitchSign = -1.0;
 
-        private const double MaxFilterStep = 0.1;
+        /// <summary>OpenTrack's deadzone_hardness default.</summary>
+        public const double SteadinessHardness = 1.5;
+
+        private const double MaxSampleStep = 0.25;
         private const double OutputEpsilon = 1e-4;
 
         private readonly ILogSink _log;
         private readonly OneEuroFilter _yawFilter = new OneEuroFilter();
         private readonly OneEuroFilter _pitchFilter = new OneEuroFilter();
-        private readonly OneEuroFilter _zFilter = new OneEuroFilter();
 
         private double _lastTick = double.NaN;
+        private double _lastSample = double.NaN;
         private double _centerYaw, _centerPitch, _centerZ;
         private bool _centered;
 
-        private double _heldYaw, _heldPitch, _heldZoom;
+        private bool _steadyPrimed;
+        private double _steadyYaw, _steadyPitch;
+
+        private double _heldYaw, _heldPitch;
         private double _lossStart, _returnStart;
 
-        private double _fadeFromYaw, _fadeFromPitch, _fadeFromZoom;
+        private double _fadeFromYaw, _fadeFromPitch;
         private double _fadeStart = double.NegativeInfinity;
 
         private bool _recenterRequested;
@@ -131,22 +138,21 @@ namespace HeadTracking.Tracking
         public double OutputYaw { get; private set; }
         public double OutputPitch { get; private set; }
 
-        /// <summary>0 none, 1 full.</summary>
-        public double OutputZoom { get; private set; }
-
-        // Intermediate values, kept for the UI and the trace log.
+        // Intermediate values, kept for the UI and the log.
         public double RawYaw { get; private set; }
         public double RawPitch { get; private set; }
         public double RawZ { get; private set; }
         public double RelativeYaw { get; private set; }
         public double RelativePitch { get; private set; }
-        public double RelativeZ { get; private set; }
+        public double SteadyYaw => _steadyYaw;
+        public double SteadyPitch => _steadyPitch;
         public double SmoothedYaw { get; private set; }
         public double SmoothedPitch { get; private set; }
-        public double SmoothedZ { get; private set; }
         public double LiveYaw { get; private set; }
         public double LivePitch { get; private set; }
-        public double LiveZoom { get; private set; }
+        public double LastSigma { get; private set; }
+        public double LastSteadyAttenuation { get; private set; } = 1;
+        public long Samples { get; private set; }
         public double CenterYaw => _centerYaw;
         public double CenterPitch => _centerPitch;
         public double CenterZ => _centerZ;
@@ -172,47 +178,43 @@ namespace HeadTracking.Tracking
             return 0.15 * r * r;
         }
 
+        /// <summary>
+        /// OpenTrack's attenuation (deadzone_filter.cpp, apply_filter_to_offset): an offset of
+        /// <paramref name="sigmas"/> standard deviations is let through by this fraction. Soft, so
+        /// a held head still converges, just without the frame-to-frame shake.
+        /// </summary>
+        public static double SteadyAttenuation(double sigmas, double size)
+        {
+            return 1.0 / (1.0 + Math.Exp(-(sigmas - size) * SteadinessHardness));
+        }
+
         /// <summary>Make the current head position the new centre at the next <see cref="Tick"/>.</summary>
         public void RequestRecenter()
         {
             _recenterRequested = true;
         }
 
-        /// <summary>
-        /// Start over: no centre, no history, back to <see cref="TrackState.NoData"/>. For a change
-        /// of source, whose angles mean something else.
-        /// </summary>
+        /// <summary>Start over: no centre, no history. For a change of source.</summary>
         public void Reset()
         {
             _centered = false;
             _centerYaw = _centerPitch = _centerZ = 0;
-            _yawFilter.Unprime();
-            _pitchFilter.Unprime();
-            _zFilter.Unprime();
-            OutputYaw = OutputPitch = OutputZoom = 0;
+            Unprime();
+            OutputYaw = OutputPitch = 0;
             _loggedIdleLoss = LossKind.None;
             State = TrackState.NoData;
             StateSince = double.IsNaN(_lastTick) ? 0 : _lastTick;
         }
 
-        /// <remarks>Snapshot by value: scripts\check-opentrack.ps1 calls this from PowerShell.</remarks>
+        /// <remarks>Snapshot by value: called from PowerShell by test scripts.</remarks>
         public void Tick(bool hasSnapshot, PoseSnapshot snapshot, double now, TrackingSettings s)
         {
-            double dt = 0;
             if (double.IsNaN(_lastTick))
             {
                 StateSince = now;
             }
-            else
-            {
-                dt = now - _lastTick;
-            }
 
             _lastTick = now;
-            if (dt < 0)
-            {
-                dt = 0;
-            }
 
             LossKind loss = Classify(hasSnapshot, snapshot, now, s);
             Loss = loss;
@@ -225,15 +227,20 @@ namespace HeadTracking.Tracking
 
             if (live)
             {
-                ComputeLive(snapshot.Pose, Math.Min(dt, MaxFilterStep), s);
+                // A new sample is a pose the source has not given before. OpenTrack resends the
+                // same pose between camera frames; the webcam source publishes once per frame.
+                if (snapshot.LastChangeTime != _lastSample)
+                {
+                    double dt = double.IsNaN(_lastSample) ? 0 : snapshot.LastChangeTime - _lastSample;
+                    _lastSample = snapshot.LastChangeTime;
+                    ComputeLive(snapshot.Pose, snapshot.RotationSigma, Clamp(dt, 0, MaxSampleStep), s);
+                }
             }
             else
             {
-                // Next time tracking comes back the filters start from that pose, rather than
-                // gliding over from wherever the head was before the loss.
-                _yawFilter.Unprime();
-                _pitchFilter.Unprime();
-                _zFilter.Unprime();
+                // When tracking comes back the filters start from that pose, rather than gliding
+                // over from wherever the head was before the loss.
+                Unprime();
             }
 
             if (_recenterRequested)
@@ -243,6 +250,14 @@ namespace HeadTracking.Tracking
             }
 
             Step(live, loss, snapshot, now, s);
+        }
+
+        private void Unprime()
+        {
+            _yawFilter.Unprime();
+            _pitchFilter.Unprime();
+            _steadyPrimed = false;
+            _lastSample = double.NaN;
         }
 
         private static LossKind Classify(bool hasSnapshot, PoseSnapshot snapshot, double now, TrackingSettings s)
@@ -270,38 +285,51 @@ namespace HeadTracking.Tracking
             return LossKind.None;
         }
 
-        private void ComputeLive(in Pose pose, double dt, TrackingSettings s)
+        private void ComputeLive(in Pose pose, double sigma, double dt, TrackingSettings s)
         {
+            Samples++;
             RawYaw = pose.Yaw;
             RawPitch = pose.Pitch;
             RawZ = pose.Z;
             RelativeYaw = Wrap180(pose.Yaw - _centerYaw);
             RelativePitch = Wrap180(pose.Pitch - _centerPitch);
-            RelativeZ = pose.Z - _centerZ;
+            LastSigma = sigma;
+
+            // Steadiness: move toward the new pose by a fraction that depends on how big the step
+            // is compared with the network's own uncertainty for this frame.
+            if (_steadyPrimed && s.Steadiness > 0 && sigma > 0)
+            {
+                double dy = RelativeYaw - _steadyYaw, dp = RelativePitch - _steadyPitch;
+                double a = SteadyAttenuation(Math.Sqrt(dy * dy + dp * dp) / sigma, s.Steadiness);
+                LastSteadyAttenuation = a;
+                _steadyYaw += dy * a;
+                _steadyPitch += dp * a;
+            }
+            else
+            {
+                LastSteadyAttenuation = 1;
+                _steadyYaw = RelativeYaw;
+                _steadyPitch = RelativePitch;
+                _steadyPrimed = true;
+            }
 
             if (s.Smoothing > 0)
             {
                 double minCutoff = MinCutoffFor(s.Smoothing);
                 double beta = BetaFor(s.FastMoveResponse);
-                SmoothedYaw = _yawFilter.Filter(RelativeYaw, dt, minCutoff, beta);
-                SmoothedPitch = _pitchFilter.Filter(RelativePitch, dt, minCutoff, beta);
-                SmoothedZ = _zFilter.Filter(RelativeZ, dt, minCutoff, beta);
+                SmoothedYaw = _yawFilter.Filter(_steadyYaw, dt, minCutoff, beta);
+                SmoothedPitch = _pitchFilter.Filter(_steadyPitch, dt, minCutoff, beta);
             }
             else
             {
-                _yawFilter.Reset(RelativeYaw);
-                _pitchFilter.Reset(RelativePitch);
-                _zFilter.Reset(RelativeZ);
-                SmoothedYaw = RelativeYaw;
-                SmoothedPitch = RelativePitch;
-                SmoothedZ = RelativeZ;
+                _yawFilter.Reset(_steadyYaw);
+                _pitchFilter.Reset(_steadyPitch);
+                SmoothedYaw = _steadyYaw;
+                SmoothedPitch = _steadyPitch;
             }
 
             LiveYaw = YawSign * (s.InvertYaw ? -1 : 1) * Shape(SmoothedYaw, s.YawDeadZone, s.YawGain, s.MaxYaw, s.YawCurve);
             LivePitch = PitchSign * (s.InvertPitch ? -1 : 1) * Shape(SmoothedPitch, s.PitchDeadZone, s.PitchGain, s.MaxPitch, s.PitchCurve);
-
-            // Z is distance from the camera: leaning in makes it smaller.
-            LiveZoom = s.ZoomEnabled ? ZoomShape(-SmoothedZ, s.ZoomDeadZone, s.ZoomFullDistance) : 0;
         }
 
         /// <summary>
@@ -327,28 +355,15 @@ namespace HeadTracking.Tracking
             return degrees < 0 ? -output : output;
         }
 
-        /// <summary>Lean (cm toward the screen) to zoom 0..1, linear between the dead zone and full.</summary>
-        public static double ZoomShape(double leanIn, double deadZone, double fullDistance)
-        {
-            double beyond = leanIn - Math.Max(0, deadZone);
-            if (beyond <= 0)
-            {
-                return 0;
-            }
-
-            double range = Math.Max(0.1, fullDistance - Math.Max(0, deadZone));
-            return Math.Min(1.0, beyond / range);
-        }
-
         private void SetCenter(in Pose pose, string why)
         {
-            double oldYaw = _centerYaw, oldPitch = _centerPitch, oldZ = _centerZ;
+            double oldYaw = _centerYaw, oldPitch = _centerPitch;
             _centerYaw = pose.Yaw;
             _centerPitch = pose.Pitch;
             _centerZ = pose.Z;
             _centered = true;
-            _log.Log(LogLevel.Info, why + ": centre was yaw " + Deg(oldYaw) + " pitch " + Deg(oldPitch) + " distance " + Cm(oldZ)
-                                    + ", now yaw " + Deg(_centerYaw) + " pitch " + Deg(_centerPitch) + " distance " + Cm(_centerZ) + ".");
+            _log.Log(LogLevel.Info, why + ": centre was yaw " + Deg(oldYaw) + " pitch " + Deg(oldPitch)
+                                    + ", now yaw " + Deg(_centerYaw) + " pitch " + Deg(_centerPitch) + " (head " + Cm(_centerZ) + " from the camera).");
         }
 
         private void Recenter(bool live, PoseSnapshot snapshot, double now, TrackingSettings s)
@@ -361,11 +376,10 @@ namespace HeadTracking.Tracking
 
             SetCenter(snapshot.Pose, "Recentred");
 
-            // Re-run this frame's maths against the new centre, then glide there.
-            _yawFilter.Unprime();
-            _pitchFilter.Unprime();
-            _zFilter.Unprime();
-            ComputeLive(snapshot.Pose, 0, s);
+            // Re-run this pose against the new centre, then glide there.
+            Unprime();
+            _lastSample = snapshot.LastChangeTime;
+            ComputeLive(snapshot.Pose, snapshot.RotationSigma, 0, s);
             StartFade(now);
         }
 
@@ -378,7 +392,6 @@ namespace HeadTracking.Tracking
                     {
                         _heldYaw = OutputYaw;
                         _heldPitch = OutputPitch;
-                        _heldZoom = OutputZoom;
                         _lossStart = now;
                         Enter(TrackState.Holding, now);
                         _log.Log(LogLevel.Warning, "Tracking lost: " + Describe(loss, snapshot, now)
@@ -421,20 +434,18 @@ namespace HeadTracking.Tracking
                 }
             }
 
-            double yaw, pitch, zoom;
+            double yaw, pitch;
             switch (State)
             {
                 case TrackState.Tracking:
                     yaw = LiveYaw;
                     pitch = LivePitch;
-                    zoom = LiveZoom;
                     double sinceFade = now - _fadeStart;
                     if (s.RecoveryFade > 0 && sinceFade < s.RecoveryFade)
                     {
                         double t = SmoothStep(sinceFade / s.RecoveryFade);
                         yaw = Lerp(_fadeFromYaw, yaw, t);
                         pitch = Lerp(_fadeFromPitch, pitch, t);
-                        zoom = Lerp(_fadeFromZoom, zoom, t);
                     }
 
                     break;
@@ -442,24 +453,21 @@ namespace HeadTracking.Tracking
                 case TrackState.Holding:
                     yaw = _heldYaw;
                     pitch = _heldPitch;
-                    zoom = _heldZoom;
                     break;
 
                 case TrackState.Returning:
                     double k = 1.0 - SmoothStep((now - _returnStart) / s.ReturnTime);
                     yaw = _heldYaw * k;
                     pitch = _heldPitch * k;
-                    zoom = _heldZoom * k;
                     break;
 
                 default:
-                    yaw = pitch = zoom = 0;
+                    yaw = pitch = 0;
                     break;
             }
 
             OutputYaw = Math.Abs(yaw) < OutputEpsilon ? 0 : yaw;
             OutputPitch = Math.Abs(pitch) < OutputEpsilon ? 0 : pitch;
-            OutputZoom = zoom < OutputEpsilon ? 0 : zoom;
         }
 
         private void Recover(double now)
@@ -472,7 +480,7 @@ namespace HeadTracking.Tracking
 
             if (from == TrackState.NoData)
             {
-                _log.Log(LogLevel.Info, "Tracking started. Head yaw " + Deg(RawYaw) + " pitch " + Deg(RawPitch) + " distance " + Cm(RawZ)
+                _log.Log(LogLevel.Info, "Tracking started. Head yaw " + Deg(RawYaw) + " pitch " + Deg(RawPitch)
                                         + " (centre yaw " + Deg(_centerYaw) + " pitch " + Deg(_centerPitch) + ").");
             }
             else
@@ -486,7 +494,6 @@ namespace HeadTracking.Tracking
         {
             _fadeFromYaw = OutputYaw;
             _fadeFromPitch = OutputPitch;
-            _fadeFromZoom = OutputZoom;
             _fadeStart = now;
         }
 
@@ -532,7 +539,7 @@ namespace HeadTracking.Tracking
 
         public static string Cm(double v)
         {
-            return v.ToString("0.0") + " cm";
+            return v.ToString("0") + " cm";
         }
 
         public static string Ms(double seconds)
@@ -557,6 +564,11 @@ namespace HeadTracking.Tracking
         private static double Lerp(double a, double b, double t)
         {
             return a + (b - a) * t;
+        }
+
+        private static double Clamp(double v, double lo, double hi)
+        {
+            return v < lo ? lo : v > hi ? hi : v;
         }
 
         private static double Clamp01(double v)

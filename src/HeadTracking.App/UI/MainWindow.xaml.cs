@@ -18,6 +18,8 @@ namespace HeadTracking.App.UI
             DataContext = viewModel;
             Title = "Head Tracking " + AppInfo.Version;
             SourceInitialized += (s, e) => UseDarkTitleBar();
+            viewModel.OwnerHandle = () => new WindowInteropHelper(this).Handle;
+            StateChanged += (s, e) => viewModel.Minimized = WindowState == WindowState.Minimized;
         }
 
         /// <summary>A dark title bar to match (Windows 10 2004 and later; harmless elsewhere).</summary>
