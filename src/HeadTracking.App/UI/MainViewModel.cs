@@ -254,6 +254,9 @@ namespace HeadTracking.App.UI
         public ObservableCollection<string> CameraNames { get; } = new ObservableCollection<string>();
         public ObservableCollection<FormatChoice> Formats { get; } = new ObservableCollection<FormatChoice>();
 
+        /// <summary>What the selected camera can do, under the 60 fps switch.</summary>
+        public string FrameRateOfferText { get; private set; } = "";
+
         public string CameraListText { get; private set; } = "Looking for cameras...";
 
         public string SelectedCamera
@@ -331,7 +334,12 @@ namespace HeadTracking.App.UI
         {
             Formats.Clear();
             Formats.Add(new FormatChoice { Key = "", Label = "Automatic (best for tracking)" });
-            CameraInfo camera = _cameras.FirstOrDefault(c => c.Name == Settings.CameraName);
+            CameraInfo camera = _cameras.FirstOrDefault(c => c.Name == Settings.CameraName) ?? (string.IsNullOrEmpty(Settings.CameraName) ? _cameras.FirstOrDefault() : null);
+            double maxFps = CameraFormats.MaxFps(camera);
+            FrameRateOfferText = camera == null ? ""
+                : maxFps >= 50 ? "This camera offers up to " + maxFps.ToString("0") + " fps."
+                : "This camera offers up to " + maxFps.ToString("0") + " fps in every format, so it stays at " + maxFps.ToString("0") + ".";
+            Raise(nameof(FrameRateOfferText));
             if (camera != null)
             {
                 foreach (CameraFormat f in camera.Formats)

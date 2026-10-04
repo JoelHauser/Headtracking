@@ -279,7 +279,10 @@ namespace HeadTracking.App
         private bool _mirrorAverage;
         [DataMember] public bool MirrorAverage { get => _mirrorAverage; set => Set(ref _mirrorAverage, value); }
 
-        private bool _keepFullFrameRate;
+        private bool _keepFullFrameRate, _preferHighFrameRate;
+
+        /// <summary>Automatic picture format: the highest frame rate first (60 fps where offered).</summary>
+        [DataMember] public bool PreferHighFrameRate { get => _preferHighFrameRate; set => Set(ref _preferHighFrameRate, value); }
         [DataMember] public bool KeepFullFrameRate { get => _keepFullFrameRate; set => Set(ref _keepFullFrameRate, value); }
 
         private bool _showPreview;
@@ -391,7 +394,11 @@ namespace HeadTracking.App
 
         public WebcamConfig ToWebcam()
         {
-            return new WebcamConfig { CameraName = CameraName, FormatKey = CameraFormat, Quality = Model, Threads = InferenceThreads, KeepFrameRate = KeepFullFrameRate };
+            return new WebcamConfig
+            {
+                CameraName = CameraName, FormatKey = CameraFormat, Quality = Model, Threads = InferenceThreads, KeepFrameRate = KeepFullFrameRate,
+                PreferHighFrameRate = PreferHighFrameRate,
+            };
         }
 
         public WebcamTrackerOptions ToWebcamOptions()

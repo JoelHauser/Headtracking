@@ -18,9 +18,10 @@ namespace HeadTracking.App.Webcam
 
         /// <summary>Turn the camera's low light compensation off, so it keeps its full frame rate.</summary>
         public bool KeepFrameRate = true;
+        public bool PreferHighFrameRate;
 
         /// <summary>Restarting the source is needed when this changes.</summary>
-        public string Identity => CameraName + "|" + FormatKey + "|" + Quality + "|" + Threads + "|" + KeepFrameRate;
+        public string Identity => CameraName + "|" + FormatKey + "|" + Quality + "|" + Threads + "|" + KeepFrameRate + "|" + PreferHighFrameRate;
     }
 
     /// <summary>A small greyscale copy of the newest frame with what the tracker saw, for the app's preview.</summary>
@@ -110,6 +111,7 @@ namespace HeadTracking.App.Webcam
             Quality = _config.Quality,
             Threads = _config.Threads,
             KeepFrameRate = _config.KeepFrameRate,
+            PreferHighFrameRate = _config.PreferHighFrameRate,
         };
 
         public WaitHandle NewData => _newData;
@@ -233,7 +235,7 @@ namespace HeadTracking.App.Webcam
                 camera = cameras[0];
             }
 
-            CameraFormat format = CameraCatalog.Choose(camera, _config.FormatKey);
+            CameraFormat format = CameraCatalog.Choose(camera, _config.FormatKey, _config.PreferHighFrameRate);
             if (format == null)
             {
                 _error = camera.Name + " offers no format this tracker can read.";

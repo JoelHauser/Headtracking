@@ -279,7 +279,11 @@
                                         <TextBlock Text="Picture format" FontWeight="SemiBold" Margin="0,0,0,6" />
                                         <ComboBox ItemsSource="{Binding Formats}" SelectedValuePath="Key" SelectedValue="{Binding SelectedFormat}" />
                                         <TextBlock Text="Automatic picks about 640 x 480 at the highest frame rate. More pixels do not track better; more frames per second do." Style="{StaticResource Hint}" Margin="0,6,0,0" />
-                                        <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.KeepFullFrameRate}" Content="Keep the full frame rate in low light" Margin="0,14,0,0" />
+                                        <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.PreferHighFrameRate}" Content="Use 60 fps when the camera offers it" Margin="0,14,0,0" />
+                                        <TextBlock Style="{StaticResource Hint}" Margin="52,0,0,0" TextWrapping="Wrap"
+                                                   Text="Automatic then picks the camera's fastest mode, even at another size or as MJPEG. Head readings come twice as often, so the view trails your head less, for about twice the CPU. Needs good light: most cameras only reach 60 with a short exposure." />
+                                        <TextBlock Text="{Binding FrameRateOfferText}" Style="{StaticResource Hint}" Margin="52,2,0,6" />
+                                        <CheckBox Style="{StaticResource Switch}" IsChecked="{Binding Settings.KeepFullFrameRate}" Content="Keep the full frame rate in low light" Margin="0,8,0,0" />
                                         <TextBlock Text="Turns off the camera's low light compensation. With it on, most webcams drop to 15 pictures a second in anything but bright light, and head tracking stutters. Off, the picture is a little darker; the tracker copes." Style="{StaticResource Hint}" Margin="52,0,0,6" />
                                         <Button Content="Camera settings..." HorizontalAlignment="Left" Margin="0,10,0,0" Command="{Binding CameraSettingsCommand}"
                                                 ToolTip="The camera driver's own dialog: exposure, gain, white balance. A shorter manual exposure also keeps the frame rate up." />

@@ -86,13 +86,27 @@ namespace HeadTracking.App.Webcam
         /// The saved format if the camera still offers it; otherwise the best for head tracking:
         /// around 640x480 (the networks work on small crops, so more pixels only cost decoding
         /// time), as fast as offered up to 60 fps, uncompressed rather than MJPEG.
+        /// With <paramref name="preferHighFrameRate"/>, the frame rate comes first: a camera whose
+        /// 60 fps mode is only at another size (often 1280x720 MJPEG) gets that mode, not 640x480
+        /// at 30. Twice the frames halves the time between head readings, at twice the CPU.
         /// </summary>
-        public static CameraFormat Choose(CameraInfo camera, string savedKey)
+        public static CameraFormat Choose(CameraInfo camera, string savedKey, bool preferHighFrameRate = false)
         {
             CameraFormat saved = camera.Formats.FirstOrDefault(f => f.Key == savedKey);
             if (saved != null)
             {
                 return saved;
+            }
+
+            if (preferHighFrameRate)
+            {
+                double best = camera.Formats.Select(f => Math.Min(Math.Round(f.Fps), 60)).DefaultIfEmpty(0).Max();
+                return camera.Formats
+                    .Where(f => Math.Min(Math.Round(f.Fps), 60) == best)
+                    .OrderBy(f => f.Width * f.Height > 1280 * 720 ? 1 : 0)
+                    .ThenBy(f => Math.Abs(f.Width - 640) + Math.Abs(f.Height - 480) * 0.5)
+                    .ThenBy(f => f.IsCompressed)
+                    .FirstOrDefault();
             }
 
             return camera.Formats
@@ -101,6 +115,12 @@ namespace HeadTracking.App.Webcam
                 .ThenBy(f => f.IsCompressed)
                 .FirstOrDefault();
         }
+    }
+
+    public static class CameraFormats
+    {
+        /// <summary>The highest frame rate any of the camera's formats offers.</summary>
+        public static double MaxFps(CameraInfo camera) => camera?.Formats.Select(f => Math.Round(f.Fps)).DefaultIfEmpty(0).Max() ?? 0;
     }
 
     public enum ModelQuality
