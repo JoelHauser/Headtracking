@@ -590,6 +590,12 @@ namespace HeadTracking.App.Webcam
             _thread?.Join(2000);
             _localizer?.Dispose();
             _poseEstimator?.Dispose();
+
+            // The camera is closed: its last picture goes too, rather than waiting for the collector.
+            lock (_snapshotLock)
+            {
+                _preview = null;
+            }
         }
     }
 }

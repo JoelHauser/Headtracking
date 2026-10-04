@@ -48,6 +48,8 @@
 
   <ItemGroup>
     <Resource Include="Assets\HeadTracking.ico" />
+    <!-- The sidebar logo. Not the .ico: an Image shown from an .ico gets its first frame, the 16 px one, stretched. -->
+    <Resource Include="Assets\HeadTracking.png" />
   </ItemGroup>
 
 </Project>

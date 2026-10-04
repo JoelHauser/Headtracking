@@ -301,6 +301,7 @@ scripts\pack.ps1 -SPTPath H:\SPT4.1.X -ModelsPath "C:\Program Files (x86)\opentr
 | `tests/HeadTracking.Tests` | xUnit tests for everything that does not need the game or a camera. |
 | `scripts/fake-game.ps1` | Stands in for the game: prints what the app sends and answers like the plugin. |
 | `scripts/send-test-poses.ps1` | Stands in for OpenTrack: scripted head movements, face loss and recovery, and optional `-Noise`, for testing without a camera. |
+| `scripts/make-icon.py` | Draws the app icon from shapes, once per size (16 to 256 px), into the .ico, the sidebar logo and `docs/icon.png`. Needs Python with Pillow. |
 
 Developer modes of `HeadTracking.exe`. None of them keeps or shows camera pictures; they print
 numbers only.

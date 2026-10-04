@@ -455,7 +455,11 @@ namespace HeadTracking.App.UI
         public Visibility NoPreviewVisibility => PreviewVisibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
         public string NoPreviewText => Settings.Source == SourceKind.OpenTrack
             ? "OpenTrack shows its own camera view."
-            : !Settings.ShowPreview ? "Preview off (Privacy page)." : "Waiting for the camera...";
+            : !Settings.ShowPreview ? "Preview off (Privacy page)."
+            : _cameraOff ? "Camera off."
+            : "Waiting for the camera...";
+
+        private bool _cameraOff;
 
         public string PluginText => AppPaths.PluginInstalled
             ? "Plugin installed: BepInEx\\plugins\\HeadTracking\\HeadTracking.Plugin.dll"
@@ -609,9 +613,21 @@ namespace HeadTracking.App.UI
                   + "add light in front of you, keep \"Keep the full frame rate\" on (Tracking source page), or lower the exposure in Camera settings."
                 : null;
 
+            bool cameraOff = Settings.Source == SourceKind.Webcam && !s.CameraRunning;
+            if (cameraOff != _cameraOff)
+            {
+                _cameraOff = cameraOff;
+                Raise(nameof(NoPreviewText));
+            }
+
             if (_selectedPage == OverviewPage)
             {
                 RefreshPreview();
+            }
+            else if (cameraOff || !Settings.ShowPreview)
+            {
+                // Not only on the Overview: a closed camera's last picture is dropped wherever you are.
+                ClearPreview();
             }
 
             if (_selectedPage == DiagnosticsPage)
@@ -707,6 +723,7 @@ namespace HeadTracking.App.UI
             PreviewFrame frame = Settings.Source == SourceKind.Webcam && Settings.ShowPreview ? _engine.Webcam?.Preview : null;
             if (frame == null)
             {
+                ClearPreview();
                 return;
             }
 
@@ -735,6 +752,25 @@ namespace HeadTracking.App.UI
             }
 
             Raise(nameof(FaceBox));
+            Raise(nameof(FaceBoxVisibility));
+        }
+
+        /// <summary>
+        /// Drops the preview picture when the camera is not running (or the preview is off): an
+        /// empty panel saying why, never the last frame frozen on screen or kept in memory.
+        /// </summary>
+        private void ClearPreview()
+        {
+            if (_previewBitmap == null && FaceBoxVisibility == Visibility.Collapsed)
+            {
+                return;
+            }
+
+            _previewBitmap = null;
+            FaceBoxVisibility = Visibility.Collapsed;
+            Raise(nameof(PreviewImage));
+            Raise(nameof(PreviewVisibility));
+            Raise(nameof(NoPreviewVisibility));
             Raise(nameof(FaceBoxVisibility));
         }
 
